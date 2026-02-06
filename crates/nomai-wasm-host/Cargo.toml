@@ -1,0 +1,17 @@
+[package]
+name = "nomai-wasm-host"
+version = "0.1.0"
+edition.workspace = true
+
+[dependencies]
+nomai-ecs = { path = "../nomai-ecs" }
+nomai-manifest = { path = "../nomai-manifest" }
+wasmtime = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+anyhow = { workspace = true }
+
+[dev-dependencies]
+tracing-subscriber = { workspace = true }

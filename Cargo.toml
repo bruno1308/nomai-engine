@@ -4,6 +4,7 @@ members = [
     "crates/nomai-ecs",
     "crates/nomai-manifest",
     "crates/nomai-engine",
+    "crates/nomai-wasm-host",
 ]
 
 [workspace.package]
@@ -20,3 +21,4 @@ rand = "0.8.5"
 rand_pcg = "0.3.1"
 thiserror = "2"
 anyhow = "1"
+wasmtime = "27.0.0"
