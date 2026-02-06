@@ -1,0 +1,88 @@
+{
+  "spike": "A",
+  "description": "ECS + Manifest feasibility spike",
+  "date": "2026-02-07",
+  "decision": "PASS",
+  "commit": "a6aa16b",
+  "environment": {
+    "platform": "win32",
+    "profile": "release",
+    "criterion_version": "0.5",
+    "samples_per_benchmark": 100
+  },
+  "benchmarks": {
+    "manifest_1k_entities_10pct_modified": {
+      "description": "Full pipeline: build commands + apply + manifest processing at 1K entities, 10% modified",
+      "median_us": 206.90,
+      "low_us": 204.71,
+      "high_us": 209.33,
+      "frame_budget_pct": 1.24,
+      "acceptance_budget_us": 833,
+      "kill_budget_us": 1667
+    },
+    "command_buffer_1k_no_manifest": {
+      "description": "Command buffer apply only (no manifest pipeline) — baseline",
+      "median_us": 53.66,
+      "low_us": 53.17,
+      "high_us": 54.18
+    },
+    "command_buffer_1k_with_manifest": {
+      "description": "Command buffer apply WITH manifest processing",
+      "median_us": 203.75,
+      "low_us": 201.84,
+      "high_us": 205.91
+    },
+    "manifest_full_pipeline_1k": {
+      "description": "Full pipeline cross-validation (apply + manifest)",
+      "median_us": 208.15,
+      "low_us": 205.84,
+      "high_us": 210.59
+    },
+    "manifest_scaling": {
+      "100_entities": { "median_us": 21.77, "low_us": 21.49, "high_us": 22.06 },
+      "500_entities": { "median_us": 105.65, "low_us": 103.90, "high_us": 107.50 },
+      "1000_entities": { "median_us": 211.80, "low_us": 208.65, "high_us": 215.00 },
+      "2000_entities": { "median_us": 431.06, "low_us": 427.41, "high_us": 435.06 }
+    },
+    "change_journal_throughput_1k": {
+      "description": "Journal creation + JSON serialization for 100 changes",
+      "median_us": 44.07,
+      "low_us": 43.68,
+      "high_us": 44.47
+    }
+  },
+  "acceptance_criteria": {
+    "manifest_generation_under_5pct": {
+      "target_us": 833,
+      "actual_us": 206.90,
+      "actual_pct": 1.24,
+      "result": "PASS"
+    },
+    "manifest_generation_kill_10pct": {
+      "target_us": 1667,
+      "actual_us": 206.90,
+      "actual_pct": 1.24,
+      "result": "CLEAR"
+    },
+    "causality_overhead": {
+      "note": "Causality metadata is integral to the command buffer design. No without-causality baseline exists for a greenfield implementation. Total pipeline cost (207us) is well under the 833us budget, making causality overhead a non-issue.",
+      "manifest_overhead_us": 150.09,
+      "manifest_overhead_pct_of_apply": 279.7,
+      "result": "N/A — see note"
+    },
+    "linear_scaling": {
+      "note": "Confirmed approximately linear O(n) scaling with modified entity count",
+      "result": "PASS"
+    }
+  },
+  "test_counts": {
+    "total": 131,
+    "ecs": 73,
+    "engine": 21,
+    "manifest": 32,
+    "doc_tests": 5,
+    "all_passing": true,
+    "clippy_warnings": 0
+  },
+  "tasks_completed": ["A1", "A2", "A3", "A4", "A5", "A6", "A7", "A8"]
+}
