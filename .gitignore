@@ -17,6 +17,7 @@ build/
 .venv/
 venv/
 .python-version
+.pytest_cache/
 
 # AssemblyScript / Node
 node_modules/
