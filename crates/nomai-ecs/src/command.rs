@@ -146,6 +146,13 @@ pub struct Command {
     /// `None` before `apply()` is called.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub spawned_entity: Option<EntityId>,
+    /// Whether the command was applied successfully.
+    ///
+    /// `false` before `apply()` is called. Set to `true` if the command
+    /// mutated the world, `false` if it was skipped (e.g. stale entity).
+    /// The change journal should only record entries for successful commands.
+    #[serde(default)]
+    pub applied_successfully: bool,
 }
 
 // ---------------------------------------------------------------------------
@@ -291,8 +298,11 @@ impl CommandBuffer {
 
     /// Apply all commands to the world in deterministic insertion order.
     ///
-    /// Returns the list of applied commands so the change journal (A6) can
-    /// consume them. The buffer is cleared after application.
+    /// Returns the list of all commands (successful and failed) so the
+    /// change journal (A6) and manifest can consume them. The buffer is
+    /// cleared after application. Check each command's
+    /// [`applied_successfully`](Command::applied_successfully) field to
+    /// distinguish real mutations from failed attempts.
     ///
     /// Commands that target stale or non-existent entities are logged as
     /// warnings and skipped -- they are still included in the returned list
@@ -340,14 +350,19 @@ impl CommandBuffer {
                 } => Self::apply_spawn_pooled(world, cmd, identity, components),
             };
 
-            if let Err(e) = result {
-                warn!(
-                    command_index = cmd.command_index,
-                    target = ?cmd.target,
-                    system_id = cmd.issued_by.0,
-                    error = %e,
-                    "command application failed"
-                );
+            match result {
+                Ok(()) => {
+                    cmd.applied_successfully = true;
+                }
+                Err(e) => {
+                    warn!(
+                        command_index = cmd.command_index,
+                        target = ?cmd.target,
+                        system_id = cmd.issued_by.0,
+                        error = %e,
+                        "command application failed"
+                    );
+                }
             }
         }
 
@@ -370,9 +385,21 @@ impl CommandBuffer {
         // bookkeeping is consistent even if a component set fails.
         cmd.spawned_entity = Some(entity);
 
+        // The entity was created — mark the spawn itself as successful.
+        // Component-set failures below are logged but don't un-create the entity.
+        cmd.applied_successfully = true;
+
         // Set additional components via deserialization.
         for (name, value) in components {
-            world.set_component_by_name(entity, name, value)?;
+            if let Err(e) = world.set_component_by_name(entity, name, value) {
+                warn!(
+                    command_index = cmd.command_index,
+                    entity = ?entity,
+                    component = %name,
+                    error = %e,
+                    "spawn component set failed (entity was still created)"
+                );
+            }
         }
 
         Ok(())
@@ -394,9 +421,21 @@ impl CommandBuffer {
         // bookkeeping is consistent even if a component set fails.
         cmd.spawned_entity = Some(entity);
 
+        // The entity was created — mark the spawn itself as successful.
+        // Component-set failures below are logged but don't un-create the entity.
+        cmd.applied_successfully = true;
+
         // Set additional components via deserialization.
         for (name, value) in components {
-            world.set_component_by_name(entity, name, value)?;
+            if let Err(e) = world.set_component_by_name(entity, name, value) {
+                warn!(
+                    command_index = cmd.command_index,
+                    entity = ?entity,
+                    component = %name,
+                    error = %e,
+                    "spawn component set failed (entity was still created)"
+                );
+            }
         }
 
         Ok(())
@@ -426,6 +465,7 @@ impl CommandBuffer {
             reason,
             command_index: index,
             spawned_entity: None,
+            applied_successfully: false,
         });
     }
 }
@@ -923,5 +963,140 @@ mod tests {
         let applied2 = buf2.apply(&mut world);
         assert_eq!(applied2.len(), 1);
         assert_eq!(world.get_component::<Health>(spawned), Some(&Health(25)),);
+    }
+
+    // -- 14. applied_successfully: success cases ------------------------------
+
+    #[test]
+    fn applied_successfully_true_on_success() {
+        let mut world = setup_world();
+        let entity = world.spawn_with(Position { x: 0.0, y: 0.0 });
+
+        let mut buf = CommandBuffer::new();
+        buf.set_component(
+            entity,
+            "position",
+            serde_json::json!({"x": 1.0, "y": 2.0}),
+            SystemId(0),
+            CausalReason::PlayerInput("test".to_owned()),
+        );
+
+        let applied = buf.apply(&mut world);
+        assert_eq!(applied.len(), 1);
+        assert!(
+            applied[0].applied_successfully,
+            "successful SetComponent should have applied_successfully = true"
+        );
+    }
+
+    // -- 15. applied_successfully: stale entity fails -------------------------
+
+    #[test]
+    fn applied_successfully_false_on_stale_entity() {
+        let mut world = setup_world();
+        let entity = world.spawn_with(Position { x: 0.0, y: 0.0 });
+        world.despawn(entity).unwrap();
+
+        let mut buf = CommandBuffer::new();
+        buf.set_component(
+            entity,
+            "position",
+            serde_json::json!({"x": 1.0, "y": 2.0}),
+            SystemId(0),
+            CausalReason::SystemInternal("stale_test".to_owned()),
+        );
+
+        let applied = buf.apply(&mut world);
+        assert_eq!(applied.len(), 1);
+        assert!(
+            !applied[0].applied_successfully,
+            "command targeting stale entity should have applied_successfully = false"
+        );
+    }
+
+    // -- 16. applied_successfully: despawn success ----------------------------
+
+    #[test]
+    fn applied_successfully_true_on_despawn() {
+        let mut world = setup_world();
+        let entity = world.spawn_with(Position { x: 0.0, y: 0.0 });
+
+        let mut buf = CommandBuffer::new();
+        buf.despawn(
+            entity,
+            SystemId(0),
+            CausalReason::GameRule("destroy".to_owned()),
+        );
+
+        let applied = buf.apply(&mut world);
+        assert!(applied[0].applied_successfully);
+        assert!(!world.is_alive(entity));
+    }
+
+    // -- 17. applied_successfully: spawn success ------------------------------
+
+    #[test]
+    fn applied_successfully_true_on_spawn() {
+        let mut world = setup_world();
+
+        let identity = EntityIdentity {
+            entity_type: "test".to_owned(),
+            role: "unit".to_owned(),
+            spawned_by: SystemId(0),
+            requirement_id: None,
+        };
+
+        let mut buf = CommandBuffer::new();
+        buf.spawn_semantic(
+            identity,
+            vec![("health".to_owned(), serde_json::json!(100))],
+            SystemId(0),
+            CausalReason::GameRule("spawn".to_owned()),
+        );
+
+        let applied = buf.apply(&mut world);
+        assert!(applied[0].applied_successfully);
+        assert!(applied[0].spawned_entity.is_some());
+    }
+
+    // -- 18. applied_successfully: mixed success/failure ----------------------
+
+    #[test]
+    fn applied_successfully_mixed_batch() {
+        let mut world = setup_world();
+        let alive = world.spawn_with(Position { x: 0.0, y: 0.0 });
+        let doomed = world.spawn_with(Position { x: 1.0, y: 1.0 });
+        world.despawn(doomed).unwrap();
+
+        let mut buf = CommandBuffer::new();
+
+        // This should succeed.
+        buf.set_component(
+            alive,
+            "position",
+            serde_json::json!({"x": 5.0, "y": 5.0}),
+            SystemId(0),
+            CausalReason::PlayerInput("move".to_owned()),
+        );
+
+        // This should fail (stale entity).
+        buf.set_component(
+            doomed,
+            "position",
+            serde_json::json!({"x": 9.0, "y": 9.0}),
+            SystemId(0),
+            CausalReason::SystemInternal("stale".to_owned()),
+        );
+
+        let applied = buf.apply(&mut world);
+        assert_eq!(applied.len(), 2);
+        assert!(
+            applied[0].applied_successfully,
+            "command on alive entity should succeed"
+        );
+        assert!(
+            !applied[1].applied_successfully,
+            "command on stale entity should fail"
+        );
     }
 }

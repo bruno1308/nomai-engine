@@ -195,7 +195,6 @@ impl RawComponentBuf {
             (vtable.drop_fn)(self.ptr);
         }
     }
-
 }
 
 impl Drop for RawComponentBuf {
