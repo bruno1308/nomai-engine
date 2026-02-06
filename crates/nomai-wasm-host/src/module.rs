@@ -3,7 +3,14 @@
 //! [`WasmModule`] wraps a Wasmtime instance of a WASM gameplay module. It
 //! enforces fuel metering, memory limits, and validates that the required
 //! `tick()` export exists before allowing execution.
+//!
+//! The store holds a [`HostState`] that provides the bridge between WASM
+//! gameplay code and the ECS command buffer. Host functions registered via
+//! [`register_host_api`](crate::host_api::register_host_api) allow WASM
+//! modules to read world state and emit deferred commands with causality
+//! metadata.
 
+use crate::host_api::{register_host_api, HostState};
 use crate::WasmError;
 use wasmtime::{Engine, Instance, Linker, Module, Store};
 
@@ -45,15 +52,20 @@ impl Default for WasmConfig {
 /// Fuel metering is enabled: each call to [`call_tick`](WasmModule::call_tick)
 /// resets the fuel budget and returns the amount consumed.
 ///
+/// The store holds a [`HostState`] that accumulates commands and events from
+/// WASM host function calls. Use [`host_state`](WasmModule::host_state) and
+/// [`host_state_mut`](WasmModule::host_state_mut) to access it, or
+/// convenience methods like [`drain_commands`](WasmModule::drain_commands).
+///
 /// # Sandbox Guarantees
 ///
 /// - No WASI (no filesystem, no network, no wall-clock time)
-/// - No imported functions (empty linker for B1; host API added in B2)
+/// - Host functions restricted to the `"nomai"` namespace
 /// - Fuel metering prevents infinite loops
 /// - Memory is capped at [`WasmConfig::memory_limit_bytes`]
 pub struct WasmModule {
-    /// The Wasmtime store, holding the module's state.
-    store: Store<()>,
+    /// The Wasmtime store, holding the module's [`HostState`].
+    store: Store<HostState>,
     /// The instantiated module.
     instance: Instance,
     /// Snapshot of the configuration used to create this module.
@@ -66,12 +78,15 @@ impl WasmModule {
     /// The bytes may be either a binary `.wasm` file or a text `.wat` file
     /// (Wasmtime handles both transparently).
     ///
+    /// Host functions from the `"nomai"` namespace are automatically
+    /// registered. Modules that do not import any `"nomai"` functions will
+    /// still work -- the host state simply sits unused.
+    ///
     /// # Validation
     ///
     /// - The module must compile successfully.
     /// - The module must export a function named `tick` with signature `() -> ()`.
-    /// - The module must not import any functions not provided by the linker
-    ///   (which is empty in B1, so any imports will fail).
+    /// - The module must not import any functions not provided by the linker.
     ///
     /// # Errors
     ///
@@ -99,14 +114,16 @@ impl WasmModule {
             });
         }
 
-        // Create store with fuel.
-        let mut store = Store::new(&engine, ());
+        // Create store with HostState and fuel.
+        let mut store = Store::new(&engine, HostState::new());
         store
             .set_fuel(config.fuel_per_tick)
             .map_err(|e| WasmError::Runtime(format!("failed to set fuel: {e}")))?;
 
-        // Empty linker -- no host functions in B1.
-        let linker = Linker::new(&engine);
+        // Create linker with host API functions registered.
+        let mut linker = Linker::new(&engine);
+        register_host_api(&mut linker)
+            .map_err(|e| WasmError::Runtime(format!("failed to register host API: {e}")))?;
 
         // Instantiate. This will fail if the module imports anything we don't provide.
         let instance = linker.instantiate(&mut store, &module).map_err(|e| {
@@ -190,6 +207,28 @@ impl WasmModule {
         Ok(result)
     }
 
+    /// Call a named export that takes no arguments and returns an `i64`.
+    ///
+    /// This is a utility for testing host API return values. Fuel is NOT
+    /// reset before this call.
+    ///
+    /// # Errors
+    ///
+    /// - [`WasmError::Runtime`] if the export does not exist or has wrong signature.
+    /// - [`WasmError::Trap`] or [`WasmError::OutOfFuel`] on execution failure.
+    pub fn call_i64_export(&mut self, name: &str) -> Result<i64, WasmError> {
+        let func = self
+            .instance
+            .get_typed_func::<(), i64>(&mut self.store, name)
+            .map_err(|e| WasmError::Runtime(format!("failed to resolve export '{name}': {e}")))?;
+
+        let result = func
+            .call(&mut self.store, ())
+            .map_err(|e| self.classify_trap(e))?;
+
+        Ok(result)
+    }
+
     /// Returns the amount of fuel remaining in the store.
     pub fn fuel_remaining(&self) -> u64 {
         self.store.get_fuel().unwrap_or(0)
@@ -200,13 +239,39 @@ impl WasmModule {
         &self.config
     }
 
+    /// Provides immutable access to the [`HostState`] inside the store.
+    pub fn host_state(&self) -> &HostState {
+        self.store.data()
+    }
+
+    /// Provides mutable access to the [`HostState`] inside the store.
+    pub fn host_state_mut(&mut self) -> &mut HostState {
+        self.store.data_mut()
+    }
+
+    /// Convenience: drain accumulated commands from the host state.
+    ///
+    /// Returns the [`CommandBuffer`] containing all commands emitted by
+    /// WASM host function calls since the last drain.
+    pub fn drain_commands(&mut self) -> nomai_ecs::command::CommandBuffer {
+        self.store.data_mut().drain_commands()
+    }
+
+    /// Convenience: drain accumulated events from the host state.
+    ///
+    /// Returns all [`GameEvent`]s emitted by WASM host function calls
+    /// since the last drain.
+    pub fn drain_events(&mut self) -> Vec<nomai_manifest::manifest::GameEvent> {
+        self.store.data_mut().drain_events()
+    }
+
     /// Provides immutable access to the Wasmtime [`Store`].
-    pub fn store(&self) -> &Store<()> {
+    pub fn store(&self) -> &Store<HostState> {
         &self.store
     }
 
     /// Provides mutable access to the Wasmtime [`Store`].
-    pub fn store_mut(&mut self) -> &mut Store<()> {
+    pub fn store_mut(&mut self) -> &mut Store<HostState> {
         &mut self.store
     }
 
