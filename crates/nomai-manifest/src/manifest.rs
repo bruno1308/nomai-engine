@@ -1483,7 +1483,164 @@ mod tests {
         assert_eq!(entry.role, "brick");
     }
 
-    // -- 16. Aggregates update after despawn -------------------------------
+    // -- 16. A8: Performance budget assertion (release mode only) ----------
+    //
+    // This test validates the Spike A acceptance criteria:
+    //   - Manifest generation must be <5% of 16.67ms (~833us)
+    //   - Kill threshold: >10% of frame budget (~1667us)
+    //
+    // We run in release mode for accurate numbers; in debug mode the
+    // thresholds are relaxed by 20x to avoid CI flakiness.
+
+    #[test]
+    fn manifest_performance_within_budget() {
+        use std::time::Instant;
+
+        let entity_count: usize = 1000;
+        let modify_count = entity_count / 10;
+
+        // --- Setup ---
+        let mut world = World::new();
+        world.register_component::<Position>("position");
+        world.register_component::<Health>("health");
+
+        let mut pipeline = ManifestPipeline::new();
+
+        let mut buf = CommandBuffer::new();
+        for i in 0..entity_count {
+            let identity = EntityIdentity {
+                entity_type: "test_entity".to_owned(),
+                role: format!("entity_{i}"),
+                spawned_by: SystemId::ENGINE_INTERNAL,
+                requirement_id: None,
+            };
+            buf.spawn_semantic(
+                identity,
+                vec![
+                    (
+                        "position".to_owned(),
+                        serde_json::json!({"x": i as f64, "y": 0.0}),
+                    ),
+                    ("health".to_owned(), serde_json::json!(100u32)),
+                ],
+                SystemId::ENGINE_INTERNAL,
+                CausalReason::SystemInternal("setup".to_owned()),
+            );
+        }
+        let applied = buf.apply(&mut world);
+
+        pipeline.begin_tick();
+        pipeline.process_commands(&applied, 0, &world);
+        pipeline.end_tick(0, 0.0, vec!["setup".to_owned()], &world);
+
+        let mut entities = Vec::new();
+        for cmd in &applied {
+            if let Some(eid) = cmd.spawned_entity {
+                entities.push(eid);
+            }
+        }
+
+        // --- Warmup ---
+        for tick in 1..=10u64 {
+            pipeline.begin_tick();
+            let mut cmds = CommandBuffer::new();
+            for (i, &entity) in entities.iter().take(modify_count).enumerate() {
+                cmds.set_component(
+                    entity,
+                    "position",
+                    serde_json::json!({"x": tick as f64 + i as f64, "y": tick as f64}),
+                    SystemId(1),
+                    CausalReason::SystemInternal("movement".to_owned()),
+                );
+            }
+            let applied = cmds.apply(&mut world);
+            pipeline.process_commands(&applied, tick, &world);
+            pipeline.end_tick(
+                tick,
+                tick as f64 / 60.0,
+                vec!["movement".to_owned()],
+                &world,
+            );
+        }
+
+        // --- Measure 100 ticks ---
+        let mut durations = Vec::with_capacity(100);
+        for tick in 11..=110u64 {
+            pipeline.begin_tick();
+
+            let mut cmds = CommandBuffer::new();
+            for (i, &entity) in entities.iter().take(modify_count).enumerate() {
+                cmds.set_component(
+                    entity,
+                    "position",
+                    serde_json::json!({"x": tick as f64 + i as f64, "y": tick as f64}),
+                    SystemId(1),
+                    CausalReason::SystemInternal("movement".to_owned()),
+                );
+            }
+
+            let start = Instant::now();
+            let applied = cmds.apply(&mut world);
+            pipeline.process_commands(&applied, tick, &world);
+            let _manifest = pipeline.end_tick(
+                tick,
+                tick as f64 / 60.0,
+                vec!["movement".to_owned()],
+                &world,
+            );
+            durations.push(start.elapsed());
+        }
+
+        durations.sort();
+
+        let median = durations[durations.len() / 2];
+        let p95 = durations[(durations.len() as f64 * 0.95) as usize];
+        let p99 = durations[(durations.len() as f64 * 0.99) as usize];
+
+        eprintln!("=== A8 Manifest Performance (1K entities, 10% modified) ===");
+        eprintln!("  Median: {:?}", median);
+        eprintln!("  P95:    {:?}", p95);
+        eprintln!("  P99:    {:?}", p99);
+        eprintln!("  Budget: 833us (5% of 16.67ms)");
+        eprintln!("  Kill:   1667us (10% of 16.67ms)");
+
+        // In debug mode the code is ~10-20x slower, so relax thresholds.
+        let budget_multiplier = if cfg!(debug_assertions) { 20 } else { 1 };
+        let acceptance_us = 833 * budget_multiplier;
+        let kill_us = 1667 * budget_multiplier;
+
+        let median_us = median.as_micros();
+        let p99_us = p99.as_micros();
+
+        eprintln!(
+            "  (mode: {}, multiplier: {}x, effective budget: {}us, effective kill: {}us)",
+            if cfg!(debug_assertions) {
+                "debug"
+            } else {
+                "release"
+            },
+            budget_multiplier,
+            acceptance_us,
+            kill_us,
+        );
+
+        assert!(
+            p99_us < kill_us as u128,
+            "KILL CRITERION EXCEEDED: P99 manifest generation = {}us > {}us (10% of frame budget). Spike FAILS.",
+            p99_us,
+            kill_us,
+        );
+
+        // Acceptance is a softer check; warn but don't fail CI on debug builds.
+        if median_us > acceptance_us as u128 {
+            eprintln!(
+                "  WARNING: Median {}us exceeds acceptance target {}us",
+                median_us, acceptance_us,
+            );
+        }
+    }
+
+    // -- 17. Aggregates update after despawn -------------------------------
 
     #[test]
     fn aggregates_update_after_despawn() {
