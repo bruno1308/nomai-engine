@@ -1,0 +1,118 @@
+{
+  "spike": "B",
+  "description": "WASM + Verification feasibility spike -- host call overhead benchmark",
+  "date": "2026-02-07",
+  "decision": "PASS",
+  "task": "B9",
+  "commit": "pending",
+  "environment": {
+    "platform": "win32",
+    "profile": "release (bench)",
+    "criterion_version": "0.5",
+    "wasmtime_version": "27.0.0",
+    "rust_toolchain": "1.83.0 stable",
+    "samples_per_benchmark": 100
+  },
+  "benchmarks": {
+    "wasm_50_host_calls": {
+      "description": "50 host calls per tick (25 reads + 25 writes) via WASM module",
+      "median_us": 8.96,
+      "low_us": 8.81,
+      "high_us": 9.12,
+      "host_call_breakdown": "25 reads (get_entity_count + tick_number) + 25 writes (set_component)",
+      "budget_us": 1000,
+      "budget_pct_used": 0.90
+    },
+    "native_equivalent_50_ops": {
+      "description": "Same 50 operations (25 reads + 25 writes) in pure Rust -- comparison baseline",
+      "median_us": 4.16,
+      "low_us": 4.11,
+      "high_us": 4.21
+    },
+    "wasm_noop_tick": {
+      "description": "Empty WASM tick() call -- measures raw Wasmtime call/return overhead",
+      "median_ns": 154.54,
+      "low_ns": 152.83,
+      "high_ns": 156.26
+    },
+    "wasm_hot_swap": {
+      "description": "Two module swaps per iteration (v1->v2, v2->v1) -- per-swap is half",
+      "median_ms_per_pair": 1.12,
+      "low_ms_per_pair": 1.11,
+      "high_ms_per_pair": 1.14,
+      "estimated_per_swap_us": 560
+    },
+    "wasm_50_calls_with_snapshot": {
+      "description": "50 host calls with 100-entity world snapshot populated in host state",
+      "median_us": 38.34,
+      "low_us": 37.63,
+      "high_us": 39.06,
+      "note": "Snapshot clone dominates -- real game loop will reuse snapshot, closer to bare 50-call bench"
+    }
+  },
+  "derived_metrics": {
+    "wasm_vs_native_ratio": {
+      "value": 2.15,
+      "calculation": "8.96 / 4.16",
+      "target_max": 5.0,
+      "kill_threshold": 10.0
+    },
+    "per_host_call_overhead_us": {
+      "value": 0.18,
+      "calculation": "8.96 / 50",
+      "note": "Average overhead per individual host call including WASM guest computation"
+    },
+    "wasm_boundary_overhead_us": {
+      "value": 0.155,
+      "calculation": "noop_tick (154.5ns) = pure boundary cost with fuel metering"
+    }
+  },
+  "acceptance_criteria": {
+    "wasm_50_host_calls_under_1ms": {
+      "target_us": 1000,
+      "actual_us": 8.96,
+      "margin_factor": 111.6,
+      "result": "PASS"
+    },
+    "wasm_vs_native_under_5x": {
+      "target_ratio": 5.0,
+      "actual_ratio": 2.15,
+      "result": "PASS"
+    },
+    "hot_swap_under_100ms": {
+      "target_ms": 100,
+      "actual_us": 560,
+      "actual_ms": 0.56,
+      "result": "PASS"
+    },
+    "kill_50_host_calls_over_1ms": {
+      "kill_threshold_us": 1000,
+      "actual_us": 8.96,
+      "result": "CLEAR"
+    },
+    "kill_wasm_vs_native_over_10x": {
+      "kill_threshold_ratio": 10.0,
+      "actual_ratio": 2.15,
+      "result": "CLEAR"
+    },
+    "kill_hot_swap_over_500ms": {
+      "kill_threshold_ms": 500,
+      "actual_ms": 0.56,
+      "result": "CLEAR"
+    }
+  },
+  "test_counts": {
+    "wasm_host_tests": 32,
+    "ignored": 1,
+    "all_passing": true
+  },
+  "notes": [
+    "All Spike B WASM overhead metrics are well within budget.",
+    "50 host calls at 8.96us is 111x under the 1ms kill criterion.",
+    "WASM vs native ratio of 2.15x is well under the 5x target and 10x kill threshold.",
+    "Hot-swap at ~560us per swap is negligible relative to the 100ms target.",
+    "The with-snapshot benchmark (38.3us) shows that even with snapshot setup overhead, the total is still 26x under budget.",
+    "Noop tick overhead (155ns) confirms Wasmtime's call boundary is not a bottleneck.",
+    "Remaining Spike B tasks (B6-B8 verification, intent specs) are not yet benchmarked here -- this covers only the WASM overhead dimension."
+  ]
+}

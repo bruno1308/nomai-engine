@@ -22,3 +22,4 @@ rand_pcg = "0.3.1"
 thiserror = "2"
 anyhow = "1"
 wasmtime = "27.0.0"
+criterion = { version = "0.5", features = ["html_reports"] }
