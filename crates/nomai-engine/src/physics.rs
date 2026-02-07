@@ -117,6 +117,15 @@ pub struct PhysicsWorld {
     body_to_entity: HashMap<RigidBodyHandle, u64>,
     /// Maps rapier ColliderHandle -> ECS EntityId (raw u64) for collision lookup.
     collider_to_entity: HashMap<ColliderHandle, u64>,
+    /// Entities queued for deferred removal from rapier.
+    ///
+    /// When a collision is detected and the game despawns the colliding entity,
+    /// the collider must persist for one more solver pass so rapier can fully
+    /// resolve the contact impulse (velocity reflection). Use
+    /// [`PhysicsWorld::deferred_unregister`] instead of
+    /// [`PhysicsWorld::unregister_entity`] for entities involved in collisions.
+    /// Removals are processed at the start of the next [`PhysicsWorld::step`].
+    pending_removals: Vec<u64>,
 }
 
 impl PhysicsWorld {
@@ -137,6 +146,7 @@ impl PhysicsWorld {
             entity_to_body: HashMap::new(),
             body_to_entity: HashMap::new(),
             collider_to_entity: HashMap::new(),
+            pending_removals: Vec::new(),
         }
     }
 
@@ -226,6 +236,22 @@ impl PhysicsWorld {
         }
     }
 
+    /// Queue an entity for deferred removal from the physics world.
+    ///
+    /// Unlike [`unregister_entity`](Self::unregister_entity), this does **not**
+    /// remove the rigid body immediately. Instead, the removal is deferred to
+    /// the start of the next [`step`](Self::step) call. This ensures that
+    /// rapier's solver can finish resolving any pending contact constraints
+    /// (e.g., bounce impulses) before the collider disappears.
+    ///
+    /// **Use this for entities involved in collisions** (e.g., bricks that
+    /// should be despawned after the ball hits them). If you use
+    /// `unregister_entity` on the collision tick, the solver loses the contact
+    /// constraint and the bounce impulse is never applied.
+    pub fn deferred_unregister(&mut self, entity_id: EntityId) {
+        self.pending_removals.push(entity_id.to_raw());
+    }
+
     /// Sync ECS position/velocity into rapier for a registered entity.
     ///
     /// Call this before stepping to update rapier with the latest ECS state
@@ -300,6 +326,16 @@ impl PhysicsWorld {
             (a.min(b), a.max(b))
         });
 
+        // Process deferred removals AFTER the solver has resolved all
+        // pending contact constraints. This ensures bounce impulses are
+        // fully applied before the collider is removed.
+        if !self.pending_removals.is_empty() {
+            let removals: Vec<u64> = self.pending_removals.drain(..).collect();
+            for raw_id in removals {
+                self.unregister_entity(EntityId::from_raw(raw_id));
+            }
+        }
+
         collisions
     }
 
@@ -366,6 +402,7 @@ impl PhysicsWorld {
         self.multibody_joint_set = MultibodyJointSet::new();
         self.ccd_solver = CCDSolver::new();
         self.pipeline = PhysicsPipeline::new();
+        self.pending_removals.clear();
 
         // 2. Re-register all entities that have Position + PhysicsBody.
         let entities: Vec<(EntityId, Position, PhysicsBody)> = world
@@ -1110,5 +1147,188 @@ mod tests {
             CausalReason::CollisionResponse(EntityId::new(10, 2), EntityId::new(20, 3))
         );
         assert_eq!(event.tick, 42);
+    }
+
+    /// Ball bounces off a brick-sized static body (no despawn).
+    #[test]
+    fn ball_bounces_off_brick() {
+        let mut pw = PhysicsWorld::new_zero_gravity();
+
+        let ball = EntityId::new(0, 0);
+        pw.register_entity(
+            ball,
+            &Position { x: 400.0, y: 300.0 },
+            &Velocity {
+                dx: 0.0,
+                dy: -250.0,
+            },
+            &PhysicsBody {
+                body_type: PhysicsBodyType::Dynamic,
+                collider: ColliderShape::Circle { radius: 6.0 },
+                restitution: 1.0,
+                is_sensor: false,
+            },
+        );
+
+        let brick = EntityId::new(1, 0);
+        pw.register_entity(
+            brick,
+            &Position { x: 400.0, y: 170.0 },
+            &Velocity { dx: 0.0, dy: 0.0 },
+            &PhysicsBody {
+                body_type: PhysicsBodyType::Static,
+                collider: ColliderShape::Box {
+                    half_width: 30.0,
+                    half_height: 8.0,
+                },
+                restitution: 1.0,
+                is_sensor: false,
+            },
+        );
+
+        let mut bounced = false;
+        for _ in 0..120u64 {
+            let _collisions = pw.step(1.0 / 60.0);
+            let results = pw.read_results();
+            let (_, _, vel) = &results[0];
+            if vel.dy > 0.0 {
+                bounced = true;
+                break;
+            }
+        }
+
+        assert!(bounced, "ball should bounce off brick (dy should flip positive)");
+    }
+
+    /// Ball bounces correctly when brick is deferred-unregistered on collision tick.
+    /// This is the regression test for the breakout bounce bug.
+    #[test]
+    fn ball_bounces_with_deferred_unregister() {
+        let mut pw = PhysicsWorld::new_zero_gravity();
+
+        let ball = EntityId::new(0, 0);
+        pw.register_entity(
+            ball,
+            &Position { x: 400.0, y: 300.0 },
+            &Velocity {
+                dx: 0.0,
+                dy: -250.0,
+            },
+            &PhysicsBody {
+                body_type: PhysicsBodyType::Dynamic,
+                collider: ColliderShape::Circle { radius: 6.0 },
+                restitution: 1.0,
+                is_sensor: false,
+            },
+        );
+
+        let brick = EntityId::new(1, 0);
+        pw.register_entity(
+            brick,
+            &Position { x: 400.0, y: 170.0 },
+            &Velocity { dx: 0.0, dy: 0.0 },
+            &PhysicsBody {
+                body_type: PhysicsBodyType::Static,
+                collider: ColliderShape::Box {
+                    half_width: 30.0,
+                    half_height: 8.0,
+                },
+                restitution: 1.0,
+                is_sensor: false,
+            },
+        );
+
+        let mut bounced = false;
+        let mut brick_deferred = false;
+        for _ in 0..120u64 {
+            let collisions = pw.step(1.0 / 60.0);
+            let results = pw.read_results();
+            let (_, _, vel) = &results[0];
+
+            // Use deferred_unregister (the fix) instead of unregister_entity.
+            if !collisions.is_empty() && !brick_deferred {
+                pw.deferred_unregister(brick);
+                brick_deferred = true;
+            }
+
+            if vel.dy > 0.0 {
+                bounced = true;
+                break;
+            }
+        }
+
+        assert!(
+            bounced,
+            "ball should bounce off brick when using deferred_unregister"
+        );
+        // Brick should be gone from rapier after the deferred removal was processed.
+        assert!(
+            !pw.has_entity(brick),
+            "brick should be removed from physics after deferred unregister"
+        );
+    }
+
+    /// Verify the bug: immediate unregister on collision tick prevents bounce.
+    /// This documents the rapier timing behavior that deferred_unregister fixes.
+    #[test]
+    fn immediate_unregister_prevents_bounce() {
+        let mut pw = PhysicsWorld::new_zero_gravity();
+
+        let ball = EntityId::new(0, 0);
+        pw.register_entity(
+            ball,
+            &Position { x: 400.0, y: 300.0 },
+            &Velocity {
+                dx: 0.0,
+                dy: -250.0,
+            },
+            &PhysicsBody {
+                body_type: PhysicsBodyType::Dynamic,
+                collider: ColliderShape::Circle { radius: 6.0 },
+                restitution: 1.0,
+                is_sensor: false,
+            },
+        );
+
+        let brick = EntityId::new(1, 0);
+        pw.register_entity(
+            brick,
+            &Position { x: 400.0, y: 170.0 },
+            &Velocity { dx: 0.0, dy: 0.0 },
+            &PhysicsBody {
+                body_type: PhysicsBodyType::Static,
+                collider: ColliderShape::Box {
+                    half_width: 30.0,
+                    half_height: 8.0,
+                },
+                restitution: 1.0,
+                is_sensor: false,
+            },
+        );
+
+        let mut bounced = false;
+        let mut brick_removed = false;
+        for _ in 0..120u64 {
+            let collisions = pw.step(1.0 / 60.0);
+            let results = pw.read_results();
+            let (_, _, vel) = &results[0];
+
+            // BUG: immediate unregister removes the collider before solver resolves.
+            if !collisions.is_empty() && !brick_removed {
+                pw.unregister_entity(brick);
+                brick_removed = true;
+            }
+
+            if vel.dy > 0.0 {
+                bounced = true;
+                break;
+            }
+        }
+
+        // Documents the known rapier timing issue: immediate unregister kills the bounce.
+        assert!(
+            !bounced,
+            "immediate unregister should prevent bounce (documents the bug)"
+        );
     }
 }

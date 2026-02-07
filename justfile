@@ -4,13 +4,16 @@
 build:
     cargo build --workspace
 
-# Run tests with cargo-nextest (preferred)
-test:
+# Run all Rust tests with cargo-nextest (preferred)
+test-rust:
     @cargo nextest run --workspace 2>/dev/null || (echo "nextest not installed, falling back to cargo test" && cargo test --workspace)
 
-# Run tests with standard cargo test (fallback)
-test-cargo:
-    cargo test --workspace
+# Run Python tests
+test-python: install-python
+    cd python/nomai-sdk && python -m pytest -x -q
+
+# Run all tests (Rust + Python)
+test: test-rust test-python
 
 # Run all benchmarks
 bench:
@@ -28,8 +31,8 @@ fmt:
 fmt-check:
     cargo fmt --all -- --check
 
-# Full CI pipeline: format check, lint, test
-ci: fmt-check clippy test
+# Full CI pipeline: format check, lint, Rust tests
+ci: fmt-check clippy test-rust
 
 # Quick workspace-wide type/syntax check (no codegen)
 check:
@@ -73,6 +76,5 @@ install-python: build-python
 demo: install-python build-gameplay-all
     python demo_breakout.py
 
-# Full CI pipeline with Python tests
-ci-full: ci install-python
-    cd python/nomai-sdk && python -m pytest -x -q
+# Full CI pipeline: Rust CI + Python tests
+ci-full: ci test-python
