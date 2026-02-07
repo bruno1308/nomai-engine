@@ -162,6 +162,17 @@ fn hash_world(world: &World) -> String {
         hasher.update(&s.to_le_bytes());
     }
 
+    // Hash all velocities (mutated every tick by decay system).
+    let mut velocities: Vec<(u64, f64, f64)> = world.query::<(&Velocity,)>()
+        .map(|(e, (v,))| (e.to_raw(), v.dx, v.dy))
+        .collect();
+    velocities.sort_by_key(|(id, _, _)| *id);
+    for (id, dx, dy) in &velocities {
+        hasher.update(&id.to_le_bytes());
+        hasher.update(&dx.to_le_bytes());
+        hasher.update(&dy.to_le_bytes());
+    }
+
     hasher.finalize().to_hex().to_string()
 }
 
