@@ -19,7 +19,7 @@
 //! use nomai_ecs::prelude::*;
 //!
 //! let world = World::new();
-//! let config = TickConfig { fixed_dt: 1.0 / 60.0 };
+//! let config = TickConfig { fixed_dt: 1.0 / 60.0, ..Default::default() };
 //! let mut tick_loop = TickLoop::new(world, config);
 //!
 //! // Register systems.
@@ -34,6 +34,8 @@
 //!
 //! assert_eq!(tick_loop.tick_count(), 10);
 //! ```
+
+use std::time::{Duration, Instant};
 
 use nomai_ecs::command::CommandBuffer;
 use nomai_ecs::world::World;
@@ -50,15 +52,44 @@ use nomai_ecs::world::World;
 pub struct TickConfig {
     /// Fixed time step in seconds per tick. Must be positive and finite.
     pub fixed_dt: f64,
+    /// Headless mode: no rendering, tick as fast as possible.
+    pub headless: bool,
 }
 
 impl Default for TickConfig {
-    /// Defaults to 60 Hz (1/60 second per tick).
+    /// Defaults to 60 Hz (1/60 second per tick), headless off.
     fn default() -> Self {
         Self {
             fixed_dt: 1.0 / 60.0,
+            headless: false,
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// TickDiagnostics
+// ---------------------------------------------------------------------------
+
+/// Timing diagnostics for the last tick.
+#[derive(Debug, Clone, Default)]
+pub struct TickDiagnostics {
+    /// Wall-clock time per system (in order of execution).
+    pub system_times: Vec<(String, Duration)>,
+    /// Total time for the tick (systems + command apply).
+    pub total_time: Duration,
+    /// Time spent applying commands.
+    pub command_apply_time: Duration,
+}
+
+// ---------------------------------------------------------------------------
+// InputFrame
+// ---------------------------------------------------------------------------
+
+/// A single frame of recorded input for replay.
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct InputFrame {
+    /// Arbitrary key-value pairs representing inputs for this tick.
+    pub inputs: std::collections::HashMap<String, serde_json::Value>,
 }
 
 // ---------------------------------------------------------------------------
@@ -80,12 +111,16 @@ pub type SystemFn = fn(&World, &mut CommandBuffer);
 /// A named system in the registry.
 ///
 /// The name is used for debugging, logging, and manifest integration.
+/// The `after` field lists the names of systems that must execute before
+/// this system.
 #[derive(Debug)]
 struct RegisteredSystem {
     /// Human-readable name for this system (e.g., `"physics"`, `"movement"`).
     name: String,
     /// The system function to invoke each tick.
     func: SystemFn,
+    /// Names of systems that must execute before this one.
+    after: Vec<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -119,6 +154,12 @@ pub struct TickLoop {
     tick_counter: u64,
     /// Fixed time step in seconds per tick.
     fixed_dt: f64,
+    /// Configuration used to create this tick loop.
+    config: TickConfig,
+    /// Diagnostics from the last tick.
+    last_diagnostics: TickDiagnostics,
+    /// Current tick's input frame (set before tick() for replay).
+    current_input: InputFrame,
 }
 
 impl TickLoop {
@@ -137,6 +178,9 @@ impl TickLoop {
             systems: Vec::new(),
             tick_counter: 0,
             fixed_dt: config.fixed_dt,
+            config,
+            last_diagnostics: TickDiagnostics::default(),
+            current_input: InputFrame::default(),
         }
     }
 
@@ -149,14 +193,86 @@ impl TickLoop {
     ///
     /// Panics if a system with the same name is already registered.
     pub fn add_system(&mut self, name: &str, func: SystemFn) {
+        self.add_system_after(name, &[], func);
+    }
+
+    /// Register a system with explicit execution dependencies.
+    ///
+    /// `after` lists system names that must execute before this system.
+    /// Validates that all referenced systems exist and that no cycles would
+    /// be created.
+    ///
+    /// # Panics
+    ///
+    /// - If any system in `after` is not already registered.
+    /// - If a system with this name already exists.
+    /// - If adding this system would create a dependency cycle.
+    pub fn add_system_after(&mut self, name: &str, after: &[&str], func: SystemFn) {
+        // Validate all "after" systems exist.
+        for dep in after {
+            assert!(
+                self.systems.iter().any(|s| s.name == *dep),
+                "system '{name}' declares dependency on '{dep}', but '{dep}' is not registered"
+            );
+        }
+
         assert!(
             !self.systems.iter().any(|s| s.name == name),
             "duplicate system name: {name:?}"
         );
+
         self.systems.push(RegisteredSystem {
             name: name.to_owned(),
             func,
+            after: after.iter().map(|s| s.to_string()).collect(),
         });
+
+        // Validate no cycles after insertion.
+        self.validate_system_order();
+    }
+
+    /// Validate that there are no cycles in the system dependency graph.
+    ///
+    /// Uses depth-first search with a recursion stack to detect back edges.
+    ///
+    /// # Panics
+    ///
+    /// Panics if a cycle is detected in the dependency graph.
+    fn validate_system_order(&self) {
+        let mut visited = vec![false; self.systems.len()];
+        let mut in_stack = vec![false; self.systems.len()];
+
+        fn dfs(
+            systems: &[RegisteredSystem],
+            idx: usize,
+            visited: &mut [bool],
+            in_stack: &mut [bool],
+        ) -> bool {
+            if in_stack[idx] {
+                return false; // cycle detected
+            }
+            if visited[idx] {
+                return true;
+            }
+            visited[idx] = true;
+            in_stack[idx] = true;
+            for dep_name in &systems[idx].after {
+                if let Some(dep_idx) = systems.iter().position(|s| s.name == *dep_name) {
+                    if !dfs(systems, dep_idx, visited, in_stack) {
+                        return false;
+                    }
+                }
+            }
+            in_stack[idx] = false;
+            true
+        }
+
+        for i in 0..self.systems.len() {
+            assert!(
+                dfs(&self.systems, i, &mut visited, &mut in_stack),
+                "cycle detected in system dependencies"
+            );
+        }
     }
 
     /// Execute one simulation tick.
@@ -171,16 +287,29 @@ impl TickLoop {
     /// `applied_successfully` field to distinguish real mutations from failed
     /// attempts.
     pub fn tick(&mut self) -> Vec<nomai_ecs::command::Command> {
-        // Phase 1: Run all systems in registered order.
+        let tick_start = Instant::now();
+        let mut system_times = Vec::with_capacity(self.systems.len());
+
+        // Phase 1: Run all systems in registered order with timing.
         for system in &self.systems {
+            let sys_start = Instant::now();
             (system.func)(&self.world, &mut self.command_buffer);
+            system_times.push((system.name.clone(), sys_start.elapsed()));
         }
 
-        // Phase 2: Apply command buffer to the world.
+        // Phase 2: Apply command buffer to the world with timing.
+        let apply_start = Instant::now();
         let applied = self.command_buffer.apply(&mut self.world);
+        let command_apply_time = apply_start.elapsed();
 
         // Phase 3: Advance tick counter.
         self.tick_counter += 1;
+
+        self.last_diagnostics = TickDiagnostics {
+            system_times,
+            total_time: tick_start.elapsed(),
+            command_apply_time,
+        };
 
         applied
     }
@@ -243,6 +372,26 @@ impl TickLoop {
     pub fn system_names(&self) -> Vec<&str> {
         self.systems.iter().map(|s| s.name.as_str()).collect()
     }
+
+    /// Diagnostics from the last tick (timing per system).
+    pub fn last_diagnostics(&self) -> &TickDiagnostics {
+        &self.last_diagnostics
+    }
+
+    /// Set the input frame for the next tick (used for replay).
+    pub fn set_input(&mut self, input: InputFrame) {
+        self.current_input = input;
+    }
+
+    /// Read the current tick's input frame.
+    pub fn current_input(&self) -> &InputFrame {
+        &self.current_input
+    }
+
+    /// Whether headless mode is enabled.
+    pub fn is_headless(&self) -> bool {
+        self.config.headless
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -254,6 +403,7 @@ mod tests {
     use super::*;
     use nomai_ecs::prelude::*;
     use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::Duration;
 
     // -- test component types -----------------------------------------------
 
@@ -307,14 +457,26 @@ mod tests {
     #[should_panic(expected = "fixed_dt must be positive")]
     fn zero_dt_panics() {
         let world = World::new();
-        let _tick_loop = TickLoop::new(world, TickConfig { fixed_dt: 0.0 });
+        let _tick_loop = TickLoop::new(
+            world,
+            TickConfig {
+                fixed_dt: 0.0,
+                ..Default::default()
+            },
+        );
     }
 
     #[test]
     #[should_panic(expected = "fixed_dt must be positive")]
     fn negative_dt_panics() {
         let world = World::new();
-        let _tick_loop = TickLoop::new(world, TickConfig { fixed_dt: -1.0 });
+        let _tick_loop = TickLoop::new(
+            world,
+            TickConfig {
+                fixed_dt: -1.0,
+                ..Default::default()
+            },
+        );
     }
 
     #[test]
@@ -325,6 +487,7 @@ mod tests {
             world,
             TickConfig {
                 fixed_dt: f64::INFINITY,
+                ..Default::default()
             },
         );
     }
@@ -358,7 +521,10 @@ mod tests {
     #[test]
     fn empty_tick_advances_counter_and_time() {
         let world = setup_world();
-        let config = TickConfig { fixed_dt: 0.01 };
+        let config = TickConfig {
+            fixed_dt: 0.01,
+            ..Default::default()
+        };
         let mut tick_loop = TickLoop::new(world, config);
 
         tick_loop.tick();
@@ -503,7 +669,10 @@ mod tests {
     #[test]
     fn sim_time_computed_not_accumulated() {
         let world = setup_world();
-        let config = TickConfig { fixed_dt: 0.1 };
+        let config = TickConfig {
+            fixed_dt: 0.1,
+            ..Default::default()
+        };
         let mut tick_loop = TickLoop::new(world, config);
 
         tick_loop.run_ticks(1000);
@@ -616,6 +785,7 @@ mod tests {
         let (world, e1, e2) = build_deterministic_world();
         let config = TickConfig {
             fixed_dt: 1.0 / 60.0,
+            ..Default::default()
         };
         let mut tick_loop = TickLoop::new(world, config);
 
@@ -888,6 +1058,7 @@ mod tests {
             let (world, entities) = build_complex_world();
             let config = TickConfig {
                 fixed_dt: 1.0 / 60.0,
+                ..Default::default()
             };
             let mut tick_loop = TickLoop::new(world, config);
             tick_loop.add_system("movement", deterministic_movement);
@@ -911,5 +1082,85 @@ mod tests {
         for (i, (a, b)) in run1.iter().zip(run2.iter()).enumerate() {
             assert_eq!(a, b, "entity {i} diverged between runs");
         }
+    }
+
+    // -- 16. System dependency ordering ------------------------------------
+
+    #[test]
+    fn system_dependency_ordering() {
+        let world = setup_world();
+        let mut tick_loop = TickLoop::new(world, TickConfig::default());
+
+        tick_loop.add_system("alpha", |_w, _c| {});
+        tick_loop.add_system_after("beta", &["alpha"], |_w, _c| {});
+        tick_loop.add_system_after("gamma", &["beta"], |_w, _c| {});
+
+        assert_eq!(tick_loop.system_names(), vec!["alpha", "beta", "gamma"]);
+    }
+
+    // -- 17. Missing dependency panics ------------------------------------
+
+    #[test]
+    #[should_panic(expected = "not registered")]
+    fn system_dependency_on_missing_panics() {
+        let world = setup_world();
+        let mut tick_loop = TickLoop::new(world, TickConfig::default());
+        tick_loop.add_system_after("beta", &["alpha"], |_w, _c| {});
+    }
+
+    // -- 18. Tick diagnostics records timing ------------------------------
+
+    #[test]
+    fn tick_diagnostics_records_timing() {
+        let mut world = setup_world();
+        world.spawn_with(Counter(0));
+        let mut tick_loop = TickLoop::new(world, TickConfig::default());
+        tick_loop.add_system("counter", counter_system);
+
+        tick_loop.tick();
+
+        let diag = tick_loop.last_diagnostics();
+        assert_eq!(diag.system_times.len(), 1);
+        assert_eq!(diag.system_times[0].0, "counter");
+        assert!(diag.total_time > Duration::ZERO);
+    }
+
+    // -- 19. Headless config -----------------------------------------------
+
+    #[test]
+    fn headless_config() {
+        let world = setup_world();
+        let config = TickConfig {
+            fixed_dt: 1.0 / 60.0,
+            headless: true,
+        };
+        let tick_loop = TickLoop::new(world, config);
+        assert!(tick_loop.is_headless());
+    }
+
+    #[test]
+    fn default_not_headless() {
+        let world = setup_world();
+        let tick_loop = TickLoop::new(world, TickConfig::default());
+        assert!(!tick_loop.is_headless());
+    }
+
+    // -- 20. Input frame injection ----------------------------------------
+
+    #[test]
+    fn input_frame_injection() {
+        let world = setup_world();
+        let mut tick_loop = TickLoop::new(world, TickConfig::default());
+
+        let mut input = InputFrame::default();
+        input
+            .inputs
+            .insert("move_x".to_string(), serde_json::json!(1.0));
+
+        tick_loop.set_input(input);
+        assert_eq!(
+            tick_loop.current_input().inputs.get("move_x"),
+            Some(&serde_json::json!(1.0))
+        );
     }
 }

@@ -13,7 +13,7 @@
 //! let mut world = World::new();
 //! world.register_component::<u32>("score");
 //!
-//! let config = TickConfig { fixed_dt: 1.0 / 60.0 };
+//! let config = TickConfig { fixed_dt: 1.0 / 60.0, ..Default::default() };
 //! let mut tick_loop = TickLoop::new(world, config);
 //!
 //! tick_loop.add_system("example", |_world, _cmds| {
@@ -45,5 +45,5 @@ pub mod prelude {
     pub use nomai_ecs::prelude::*;
 
     // Engine-specific exports.
-    pub use crate::tick::{SystemFn, TickConfig, TickLoop};
+    pub use crate::tick::{InputFrame, SystemFn, TickConfig, TickDiagnostics, TickLoop};
 }
