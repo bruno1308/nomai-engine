@@ -15,6 +15,7 @@ from nomai.manifest import (
     EntityEntry,
     TickManifest,
 )
+from nomai.replay import EngineSnapshot, ReplayLog, ReplayResult
 
 logger = logging.getLogger(__name__)
 
@@ -167,6 +168,60 @@ class NomaiEngine:
     def hot_swap_gameplay_wasm(self, wasm_bytes: bytes) -> None:
         """Hot-swap the current WASM gameplay module."""
         self._engine.hot_swap_gameplay_wasm(wasm_bytes)
+
+    # -- Snapshot/Restore ----------------------------------------------------
+
+    def capture_snapshot(self) -> EngineSnapshot:
+        """Capture a snapshot of the current engine state.
+
+        Returns a typed ``EngineSnapshot`` containing the tick counter,
+        fixed_dt, BLAKE3 hash, and the full JSON for round-tripping back
+        to ``restore_snapshot()``.
+        """
+        json_str: str = self._engine.capture_snapshot()
+        return EngineSnapshot.from_json(json_str)
+
+    def restore_snapshot(self, snapshot: EngineSnapshot) -> None:
+        """Restore engine state from a previously captured snapshot.
+
+        After restore the tick counter and world state match the snapshot.
+        The manifest pipeline is reset and the command buffer is cleared.
+
+        **Note:** Systems, physics world, and WASM module are NOT restored.
+        Re-attach them after calling this method if needed.
+        """
+        self._engine.restore_snapshot(snapshot.raw_json)
+
+    def state_hash(self) -> str:
+        """Get BLAKE3 hex digest of the current engine state.
+
+        Returns a 64-character lowercase hex string. Two engines with
+        identical state will produce the same hash.
+        """
+        result: str = self._engine.state_hash()
+        return result
+
+    # -- Replay --------------------------------------------------------------
+
+    def replay(self, log: ReplayLog) -> ReplayResult:
+        """Replay a recorded log and return the result.
+
+        Restores the log's initial snapshot, feeds recorded inputs tick-by-tick,
+        and verifies state hashes at each checkpoint. Returns a ``ReplayResult``
+        indicating whether the replay was deterministic.
+        """
+        result_json: str = self._engine.replay_log(log.raw_json)
+        return ReplayResult.from_json(result_json)
+
+    def set_input(self, inputs: dict[str, object]) -> None:
+        """Set the input frame for simulation.
+
+        Each key-value pair is a named input. Values must be JSON-serializable.
+        The input frame persists until overwritten by another ``set_input()``
+        call (or snapshot restore) and is included in snapshot/replay state
+        hashing. Pass an empty dict to clear the current input.
+        """
+        self._engine.set_input(inputs)
 
     # -- Info ----------------------------------------------------------------
 

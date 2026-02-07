@@ -11,7 +11,7 @@ use nomai_ecs::identity::{EntityIdentity, SystemId};
 use nomai_engine::physics::{
     ColliderShape, PhysicsBody, PhysicsBodyType, PhysicsWorld, Position, Velocity,
 };
-use nomai_engine::tick::{TickConfig, TickLoop};
+use nomai_engine::tick::{InputFrame, TickConfig, TickLoop};
 use nomai_manifest::manifest::TickManifest;
 use nomai_wasm_host::{WasmConfig, WasmModule};
 use pyo3::prelude::*;
@@ -553,6 +553,110 @@ impl PyNomaiEngine {
             }
             None => Ok(None),
         }
+    }
+
+    // -- Snapshot/Restore ---------------------------------------------------
+
+    /// Capture a snapshot of the current engine state.
+    ///
+    /// Returns a JSON string of the full ``EngineSnapshot``. Pass this string
+    /// to ``restore_snapshot()`` to rewind the engine to this state.
+    fn capture_snapshot(&self) -> PyResult<String> {
+        let snapshot = self.tick_loop.capture_snapshot();
+        serde_json::to_string(&snapshot).map_err(|e| {
+            pyo3::exceptions::PyRuntimeError::new_err(format!(
+                "failed to serialize EngineSnapshot to JSON: {e}"
+            ))
+        })
+    }
+
+    /// Restore engine state from a JSON snapshot string.
+    ///
+    /// The snapshot must have been produced by ``capture_snapshot()``.
+    /// After restore the tick counter and world state match the snapshot;
+    /// the manifest pipeline is reset and the command buffer is cleared.
+    ///
+    /// **Note:** Systems, physics world, and WASM module are NOT restored.
+    /// Re-attach them after calling this method if needed.
+    fn restore_snapshot(&mut self, snapshot_json: &str) -> PyResult<()> {
+        let snapshot: nomai_engine::snapshot::EngineSnapshot =
+            serde_json::from_str(snapshot_json).map_err(|e| {
+                pyo3::exceptions::PyValueError::new_err(format!(
+                    "invalid snapshot JSON: {e} -- ensure the string was produced by capture_snapshot()"
+                ))
+            })?;
+        self.tick_loop.restore_from_snapshot(&snapshot).map_err(|e| {
+            pyo3::exceptions::PyRuntimeError::new_err(format!(
+                "snapshot restore failed: {e}"
+            ))
+        })
+    }
+
+    /// Get the BLAKE3 hex digest of the current engine state.
+    ///
+    /// Returns a 64-character lowercase hex string. Two engines with
+    /// identical state (world, tick counter, fixed_dt, input frame)
+    /// will produce the same hash.
+    fn state_hash(&self) -> String {
+        self.tick_loop.state_hash()
+    }
+
+    // -- Replay -------------------------------------------------------------
+
+    /// Replay a recorded log (JSON string) and return the result as JSON.
+    ///
+    /// The log must have been produced by serializing a ``ReplayLog`` to JSON
+    /// (e.g., from the Rust integration tests or via ``ReplayRecorder``).
+    ///
+    /// Returns a JSON string of the ``ReplayResult``, which includes:
+    /// - ``completed``: whether the replay ran to completion.
+    /// - ``ticks_replayed``: total ticks replayed.
+    /// - ``first_divergence``: the first checkpoint mismatch, if any.
+    fn replay_log(&mut self, replay_log_json: &str) -> PyResult<String> {
+        let log: nomai_engine::replay::ReplayLog =
+            serde_json::from_str(replay_log_json).map_err(|e| {
+                pyo3::exceptions::PyValueError::new_err(format!(
+                    "invalid replay log JSON: {e} -- ensure the string is a valid ReplayLog"
+                ))
+            })?;
+        let result = nomai_engine::replay::replay(&mut self.tick_loop, &log).map_err(|e| {
+            pyo3::exceptions::PyRuntimeError::new_err(format!(
+                "replay failed: {e}"
+            ))
+        })?;
+        serde_json::to_string(&result).map_err(|e| {
+            pyo3::exceptions::PyRuntimeError::new_err(format!(
+                "failed to serialize ReplayResult to JSON: {e}"
+            ))
+        })
+    }
+
+    // -- Input --------------------------------------------------------------
+
+    /// Set the input frame for simulation.
+    ///
+    /// Takes a dict of ``{str: json_value}``. Each value must be
+    /// JSON-serializable. The input frame persists until overwritten
+    /// by another ``set_input()`` call (or snapshot restore) and is
+    /// included in snapshot/replay state hashing.
+    fn set_input(&mut self, input: &Bound<'_, PyDict>, py: Python<'_>) -> PyResult<()> {
+        let json_mod = py.import("json")?;
+        let mut frame = InputFrame::default();
+        for (key, value) in input.iter() {
+            let name: String = key.extract()?;
+            let json_str: String = json_mod
+                .call_method1("dumps", (value,))?
+                .extract()?;
+            let json_val: serde_json::Value =
+                serde_json::from_str(&json_str).map_err(|e| {
+                    pyo3::exceptions::PyValueError::new_err(format!(
+                        "failed to parse input '{name}' as JSON: {e}"
+                    ))
+                })?;
+            frame.inputs.insert(name, json_val);
+        }
+        self.tick_loop.set_input(frame);
+        Ok(())
     }
 }
 
