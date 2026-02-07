@@ -70,14 +70,14 @@
       {
         "name": "ball_in_bounds",
         "kind": "invariant",
-        "description": "Ball position must stay within game bounds (0-800 x, 0-600 y) every tick. Uses entity_count >= 0 as evaluable proxy; full position-range check is post-MVP.",
-        "condition": "entity_count >= 0"
+        "description": "Ball position must stay within game bounds (0-800 x) every tick.",
+        "condition": "component_range:ball.position.x in [0, 800]"
       },
       {
         "name": "paddle_in_bounds",
         "kind": "invariant",
-        "description": "Paddle position must stay within game bounds (0-800 x) every tick. Uses entity_count >= 0 as evaluable proxy; full position-range check is post-MVP.",
-        "condition": "entity_count >= 0"
+        "description": "Paddle position must stay within game bounds (0-800 x) every tick.",
+        "condition": "component_range:paddle.position.x in [0, 800]"
       },
       {
         "name": "brick_destroyed_after_physics",

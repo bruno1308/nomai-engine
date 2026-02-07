@@ -1,7 +1,8 @@
 """Nomai SDK -- Python interface for the Nomai Engine.
 
 Provides intent spec DSL, manifest data types, verification engine,
-snapshot/replay types, and engine control for AI-driven game development.
+snapshot/replay types, GDD analysis, and engine control for AI-driven
+game development.
 """
 
 __version__ = "0.1.0"
@@ -16,6 +17,18 @@ from nomai.manifest import (
     GameEvent,
     TickManifest,
 )
+from nomai.gdd import (
+    BoundsSpec,
+    ClarificationQuestion,
+    CompletenessChecker,
+    DegenerateStateSpec,
+    EntitySpec,
+    GameDesignSpec,
+    IntentGenerator,
+    InteractionSpec,
+    InvariantSpec,
+    PlayAreaSpec,
+)
 from nomai.replay import (
     EngineSnapshot,
     ReplayDivergence,
@@ -25,13 +38,23 @@ from nomai.replay import (
 
 __all__ = [
     "Aggregates",
+    "BoundsSpec",
     "CausalChain",
     "CausalStep",
+    "ClarificationQuestion",
+    "CompletenessChecker",
     "ComponentChange",
+    "DegenerateStateSpec",
     "EngineSnapshot",
     "EntityEntry",
+    "EntitySpec",
+    "GameDesignSpec",
     "GameEvent",
+    "IntentGenerator",
+    "InteractionSpec",
+    "InvariantSpec",
     "NomaiEngine",
+    "PlayAreaSpec",
     "ReplayDivergence",
     "ReplayLog",
     "ReplayResult",
