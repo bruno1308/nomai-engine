@@ -80,6 +80,15 @@ pub enum WasmError {
         limit_bytes: usize,
     },
 
+    /// The module's imports don't match the available host API functions.
+    #[error("WASM module has unsupported import '{module}::{name}' -- only 'nomai::*' and 'env::abort' are supported")]
+    InvalidImport {
+        /// The import module namespace.
+        module: String,
+        /// The import function name.
+        name: String,
+    },
+
     /// A general runtime error from the Wasmtime engine.
     #[error("WASM runtime error: {0}")]
     Runtime(String),
@@ -338,6 +347,226 @@ mod tests {
         assert_eq!(
             module.host_state().entity_count, 99,
             "entity_count should be preserved"
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// B9 Tests -- Sandbox Hardening (#30)
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod hardening_tests {
+    use super::*;
+
+    /// Helper: load a WAT fixture file from the tests/fixtures directory.
+    fn fixture_bytes(name: &str) -> Vec<u8> {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests")
+            .join("fixtures")
+            .join(name);
+        std::fs::read(&path)
+            .unwrap_or_else(|e| panic!("failed to read fixture {}: {}", path.display(), e))
+    }
+
+    // -- Import validation tests -----------------------------------------------
+
+    #[test]
+    fn invalid_import_rejected() {
+        let config = WasmConfig::default();
+        let bytes = fixture_bytes("bad_import.wat");
+        let result = WasmModule::from_bytes(&config, &bytes);
+
+        assert!(result.is_err(), "module with unknown import should fail");
+
+        let err = result.unwrap_err();
+        match err {
+            WasmError::InvalidImport { ref module, ref name } => {
+                assert_eq!(module, "unknown_module");
+                assert_eq!(name, "unknown_func");
+            }
+            other => panic!("expected InvalidImport, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn wasi_import_rejected_with_invalid_import() {
+        // The existing wasi_import.wat should now be rejected at the import
+        // validation stage (InvalidImport) rather than at instantiation
+        // (Runtime error), because "wasi_snapshot_preview1" is not an
+        // allowed namespace.
+        let config = WasmConfig::default();
+        let bytes = fixture_bytes("wasi_import.wat");
+        let result = WasmModule::from_bytes(&config, &bytes);
+
+        assert!(result.is_err(), "WASI import should be rejected");
+
+        let err = result.unwrap_err();
+        assert!(
+            matches!(err, WasmError::InvalidImport { ref module, .. } if module == "wasi_snapshot_preview1"),
+            "expected InvalidImport for wasi_snapshot_preview1, got: {err:?}"
+        );
+    }
+
+    #[test]
+    fn nomai_and_env_imports_allowed() {
+        // The host_api_test.wat imports from "nomai" and the env::abort is
+        // also registered. Both should be allowed.
+        let config = WasmConfig::default();
+        let bytes = fixture_bytes("host_api_test.wat");
+        let result = WasmModule::from_bytes(&config, &bytes);
+        assert!(
+            result.is_ok(),
+            "module importing 'nomai' functions should load: {:?}",
+            result.err()
+        );
+    }
+
+    // -- Trap recovery tests ---------------------------------------------------
+
+    #[test]
+    fn trap_recovers_gracefully() {
+        let config = WasmConfig::default();
+        let bytes = fixture_bytes("trap_test.wat");
+        let mut module = WasmModule::from_bytes(&config, &bytes).unwrap();
+
+        let result = module.call_tick();
+        assert!(result.is_err(), "unreachable should trap");
+
+        let err = result.unwrap_err();
+        assert!(
+            matches!(err, WasmError::Trap(_)),
+            "expected Trap, got: {err:?}"
+        );
+
+        assert_eq!(
+            module.consecutive_traps(),
+            1,
+            "consecutive_traps should be 1 after first trap"
+        );
+    }
+
+    #[test]
+    fn consecutive_traps_increment() {
+        let config = WasmConfig::default();
+        let bytes = fixture_bytes("trap_test.wat");
+        let mut module = WasmModule::from_bytes(&config, &bytes).unwrap();
+
+        for i in 1..=3 {
+            let result = module.call_tick();
+            assert!(result.is_err(), "tick {i} should trap");
+            assert_eq!(
+                module.consecutive_traps(),
+                i,
+                "consecutive_traps should be {i} after {i} traps"
+            );
+        }
+    }
+
+    #[test]
+    fn consecutive_traps_reset_on_success() {
+        // This test verifies that consecutive_traps resets to 0 when a
+        // successful tick occurs. We can only do this by swapping to a
+        // working module after trapping.
+        let config = WasmConfig::default();
+        let trap_bytes = fixture_bytes("trap_test.wat");
+        let noop_bytes = fixture_bytes("noop.wat");
+
+        let mut module = WasmModule::from_bytes(&config, &trap_bytes).unwrap();
+
+        // Trap twice.
+        let _ = module.call_tick();
+        let _ = module.call_tick();
+        assert_eq!(module.consecutive_traps(), 2);
+
+        // Swap to a working module.
+        module.swap(&noop_bytes).unwrap();
+
+        // The consecutive_traps should still be 2 (swap doesn't reset it).
+        assert_eq!(
+            module.consecutive_traps(),
+            2,
+            "swap should not reset consecutive_traps"
+        );
+
+        // A successful tick should reset it.
+        module.call_tick().unwrap();
+        assert_eq!(
+            module.consecutive_traps(),
+            0,
+            "consecutive_traps should reset to 0 after successful tick"
+        );
+    }
+
+    // -- Swap import validation tests ------------------------------------------
+
+    #[test]
+    fn swap_validates_imports() {
+        let config = WasmConfig::default();
+        let noop_bytes = fixture_bytes("noop.wat");
+        let bad_bytes = fixture_bytes("bad_import.wat");
+
+        let mut module = WasmModule::from_bytes(&config, &noop_bytes).unwrap();
+
+        // Verify original module works.
+        let fuel = module.call_tick().unwrap();
+        assert!(fuel > 0, "original module should work before swap");
+
+        // Try to swap with a module that has invalid imports.
+        let result = module.swap(&bad_bytes);
+        assert!(result.is_err(), "swap with bad imports should fail");
+
+        let err = result.unwrap_err();
+        assert!(
+            matches!(err, WasmError::InvalidImport { ref module, ref name }
+                if module == "unknown_module" && name == "unknown_func"),
+            "should be InvalidImport, got: {err:?}"
+        );
+
+        // Original module should still work after failed swap.
+        let fuel = module.call_tick().unwrap();
+        assert!(fuel > 0, "original module should still work after failed swap");
+    }
+
+    #[test]
+    fn swap_with_wasi_import_rejected() {
+        let config = WasmConfig::default();
+        let noop_bytes = fixture_bytes("noop.wat");
+        let wasi_bytes = fixture_bytes("wasi_import.wat");
+
+        let mut module = WasmModule::from_bytes(&config, &noop_bytes).unwrap();
+
+        let result = module.swap(&wasi_bytes);
+        assert!(result.is_err(), "swap with WASI imports should fail");
+
+        assert!(
+            matches!(result.unwrap_err(), WasmError::InvalidImport { .. }),
+            "should be InvalidImport for WASI namespace"
+        );
+
+        // Original still works.
+        module.call_tick().unwrap();
+    }
+
+    // -- Edge case: fuel exhaustion also increments consecutive_traps ----------
+
+    #[test]
+    fn fuel_exhaustion_increments_consecutive_traps() {
+        let config = WasmConfig {
+            fuel_per_tick: 10_000, // Very low budget for the infinite loop.
+            ..WasmConfig::default()
+        };
+        let bytes = fixture_bytes("fuel_hog.wat");
+        let mut module = WasmModule::from_bytes(&config, &bytes).unwrap();
+
+        let result = module.call_tick();
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), WasmError::OutOfFuel { .. }));
+
+        assert_eq!(
+            module.consecutive_traps(),
+            1,
+            "fuel exhaustion should increment consecutive_traps"
         );
     }
 }

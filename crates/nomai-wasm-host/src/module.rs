@@ -70,6 +70,9 @@ pub struct WasmModule {
     instance: Instance,
     /// Snapshot of the configuration used to create this module.
     config: WasmConfig,
+    /// Consecutive trap count for health monitoring. Reset to 0 on
+    /// successful `tick()` execution, incremented on each trap.
+    consecutive_traps: u32,
 }
 
 impl WasmModule {
@@ -92,6 +95,8 @@ impl WasmModule {
     ///
     /// - [`WasmError::CompileError`] if the bytes are not valid WASM/WAT.
     /// - [`WasmError::MissingExport`] if `tick()` is not exported.
+    /// - [`WasmError::InvalidImport`] if the module imports from a namespace
+    ///   other than `"nomai"` or `"env"`.
     /// - [`WasmError::Runtime`] if instantiation fails (e.g. unsatisfied imports).
     pub fn from_bytes(config: &WasmConfig, bytes: &[u8]) -> Result<Self, WasmError> {
         // Build engine with fuel metering enabled.
@@ -112,6 +117,17 @@ impl WasmModule {
             return Err(WasmError::MissingExport {
                 name: "tick".to_owned(),
             });
+        }
+
+        // Validate imports -- only "nomai" and "env" namespaces are allowed.
+        for import in module.imports() {
+            let module_name = import.module();
+            if module_name != "nomai" && module_name != "env" {
+                return Err(WasmError::InvalidImport {
+                    module: module_name.to_owned(),
+                    name: import.name().to_owned(),
+                });
+            }
         }
 
         // Create store with HostState and fuel.
@@ -141,6 +157,7 @@ impl WasmModule {
             store,
             instance,
             config: config.clone(),
+            consecutive_traps: 0,
         })
     }
 
@@ -163,9 +180,19 @@ impl WasmModule {
             .get_typed_func::<(), ()>(&mut self.store, "tick")
             .map_err(|e| WasmError::Runtime(format!("failed to resolve tick(): {e}")))?;
 
-        tick_fn
-            .call(&mut self.store, ())
-            .map_err(|e| self.classify_trap(e))?;
+        match tick_fn.call(&mut self.store, ()) {
+            Ok(()) => {
+                self.consecutive_traps = 0;
+            }
+            Err(e) => {
+                self.consecutive_traps += 1;
+                tracing::warn!(
+                    consecutive_traps = self.consecutive_traps,
+                    "WASM tick() trapped"
+                );
+                return Err(self.classify_trap(e));
+            }
+        }
 
         // Calculate fuel consumed.
         let remaining = self
@@ -239,6 +266,15 @@ impl WasmModule {
         &self.config
     }
 
+    /// Number of consecutive ticks that trapped.
+    ///
+    /// Reset to 0 after a successful [`call_tick`](Self::call_tick).
+    /// Useful for health monitoring -- a module with many consecutive traps
+    /// can be skipped or replaced.
+    pub fn consecutive_traps(&self) -> u32 {
+        self.consecutive_traps
+    }
+
     /// Provides immutable access to the [`HostState`] inside the store.
     pub fn host_state(&self) -> &HostState {
         self.store.data()
@@ -294,6 +330,8 @@ impl WasmModule {
     ///
     /// - [`WasmError::CompileError`] if the new bytes are invalid WASM/WAT.
     /// - [`WasmError::MissingExport`] if the new module lacks a `tick()` export.
+    /// - [`WasmError::InvalidImport`] if the new module imports from a namespace
+    ///   other than `"nomai"` or `"env"`.
     /// - [`WasmError::Runtime`] if instantiation fails.
     ///
     /// On failure, the original module instance remains intact and functional.
@@ -311,6 +349,17 @@ impl WasmModule {
             return Err(WasmError::MissingExport {
                 name: "tick".to_owned(),
             });
+        }
+
+        // Validate imports -- only "nomai" and "env" namespaces are allowed.
+        for import in module.imports() {
+            let module_name = import.module();
+            if module_name != "nomai" && module_name != "env" {
+                return Err(WasmError::InvalidImport {
+                    module: module_name.to_owned(),
+                    name: import.name().to_owned(),
+                });
+            }
         }
 
         // Create new linker with host API.
@@ -390,6 +439,7 @@ impl std::fmt::Debug for WasmModule {
         f.debug_struct("WasmModule")
             .field("config", &self.config)
             .field("fuel_remaining", &self.fuel_remaining())
+            .field("consecutive_traps", &self.consecutive_traps)
             .finish_non_exhaustive()
     }
 }
