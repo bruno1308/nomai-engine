@@ -17,10 +17,12 @@ from nomai.gdd import (
     DegenerateStateSpec,
     EntitySpec,
     GameDesignSpec,
+    IntentGenerator,
     InteractionSpec,
     InvariantSpec,
     PlayAreaSpec,
 )
+from nomai.intents import IntentKind, VerificationSuite
 
 
 # ---------------------------------------------------------------------------
@@ -716,3 +718,68 @@ class TestCompletenessChecker:
         questions = checker.check(spec)
         degen_qs = [q for q in questions if q.category == "degenerate"]
         assert len(degen_qs) >= 1
+
+
+# ---------------------------------------------------------------------------
+# IntentGenerator
+# ---------------------------------------------------------------------------
+
+class TestIntentGenerator:
+    """Tests for IntentGenerator -- compiles GameDesignSpec to VerificationSuite."""
+
+    def test_generates_entity_intents(self) -> None:
+        spec = _make_breakout_spec()
+        gen = IntentGenerator()
+        suite = gen.generate(spec)
+        entity_intents = [i for i in suite.intents if i.kind == IntentKind.ENTITY]
+        assert len(entity_intents) == 3  # paddle, ball, brick
+
+    def test_generates_bounds_invariants(self) -> None:
+        spec = _make_breakout_spec()
+        gen = IntentGenerator()
+        suite = gen.generate(spec)
+        invariants = [i for i in suite.intents if i.kind == IntentKind.INVARIANT]
+        bounds_invariants = [i for i in invariants if "bounds" in i.name]
+        # paddle has y bounds, ball has x+y bounds = at least 2 (possibly more per axis)
+        assert len(bounds_invariants) >= 2
+
+    def test_generates_speed_metrics(self) -> None:
+        spec = _make_breakout_spec()
+        gen = IntentGenerator()
+        suite = gen.generate(spec)
+        metrics = [i for i in suite.intents if i.kind == IntentKind.METRIC]
+        assert len(metrics) >= 1  # at least ball speed
+
+    def test_generates_interaction_behaviors(self) -> None:
+        spec = _make_breakout_spec()
+        gen = IntentGenerator()
+        suite = gen.generate(spec)
+        behaviors = [i for i in suite.intents if i.kind == IntentKind.BEHAVIOR]
+        assert len(behaviors) >= 3  # ball-paddle, ball-brick, ball-wall
+
+    def test_generates_degenerate_state_invariants(self) -> None:
+        spec = _make_breakout_spec()
+        gen = IntentGenerator()
+        suite = gen.generate(spec)
+        invariants = [i for i in suite.intents if i.kind == IntentKind.INVARIANT]
+        degen = [i for i in invariants if "degenerate" in i.name or "stuck" in i.name]
+        assert len(degen) >= 1
+
+    def test_suite_is_json_serializable(self) -> None:
+        spec = _make_breakout_spec()
+        gen = IntentGenerator()
+        suite = gen.generate(spec)
+        json_str = suite.to_json()
+        restored = VerificationSuite.from_json(json_str)
+        assert restored.name == suite.name
+        assert len(restored.intents) == len(suite.intents)
+
+    def test_empty_spec_generates_no_intents(self) -> None:
+        spec = GameDesignSpec(
+            title="Empty", description="Empty",
+            play_area=None, entities=(), interactions=(),
+            invariants=(), degenerate_states=(),
+        )
+        gen = IntentGenerator()
+        suite = gen.generate(spec)
+        assert len(suite.intents) == 0

@@ -16,6 +16,15 @@ import logging
 from dataclasses import dataclass
 from typing import Self
 
+from nomai.intents import (
+    IntentKind,
+    IntentSpec,
+    VerificationSuite,
+    collision,
+    component_changed,
+    entity_despawned,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -683,6 +692,191 @@ class CompletenessChecker:
                 ),
             ]
         return []
+
+
+# ---------------------------------------------------------------------------
+# IntentGenerator
+# ---------------------------------------------------------------------------
+
+class IntentGenerator:
+    """Compiles a GameDesignSpec into a VerificationSuite.
+
+    Generates one atomic IntentSpec per constraint for maximum
+    failure localization in the verification report.
+    """
+
+    def generate(self, spec: GameDesignSpec) -> VerificationSuite:
+        """Generate a complete verification suite from a game design spec.
+
+        Args:
+            spec: The game design specification to compile.
+
+        Returns:
+            A VerificationSuite containing one IntentSpec per constraint.
+        """
+        intents: list[IntentSpec] = []
+        intents.extend(self._entity_intents(spec))
+        intents.extend(self._bounds_invariants(spec))
+        intents.extend(self._speed_metrics(spec))
+        intents.extend(self._interaction_behaviors(spec))
+        intents.extend(self._degenerate_invariants(spec))
+        return VerificationSuite(
+            name=f"{spec.title.lower().replace(' ', '_')}_verification",
+            description=f"Auto-generated verification suite for {spec.title}",
+            intents=intents,
+        )
+
+    def _entity_intents(self, spec: GameDesignSpec) -> list[IntentSpec]:
+        """Generate one ENTITY intent per entity in the spec."""
+        intents: list[IntentSpec] = []
+        for entity in spec.entities:
+            intents.append(
+                IntentSpec(
+                    name=f"{entity.name}_exists",
+                    kind=IntentKind.ENTITY,
+                    description=f"Entity '{entity.name}' must exist with required components",
+                    entity_type=entity.entity_type,
+                    entity_role=entity.role,
+                    must_exist=True,
+                    must_be_visible=True,
+                    required_components=list(entity.required_components),
+                )
+            )
+        return intents
+
+    def _bounds_invariants(self, spec: GameDesignSpec) -> list[IntentSpec]:
+        """Generate INVARIANT intents for entity spatial bounds.
+
+        One invariant per axis that has both min and max defined.
+        """
+        intents: list[IntentSpec] = []
+        for entity in spec.entities:
+            if entity.bounds is None:
+                continue
+            bounds = entity.bounds
+            if bounds.x_min is not None and bounds.x_max is not None:
+                intents.append(
+                    IntentSpec(
+                        name=f"{entity.name}_x_bounds",
+                        kind=IntentKind.INVARIANT,
+                        description=(
+                            f"Entity '{entity.name}' x-position must stay within "
+                            f"[{bounds.x_min}, {bounds.x_max}]"
+                        ),
+                        condition=(
+                            f"component_range:{entity.name}.position.x "
+                            f"in [{bounds.x_min}, {bounds.x_max}]"
+                        ),
+                    )
+                )
+            if bounds.y_min is not None and bounds.y_max is not None:
+                intents.append(
+                    IntentSpec(
+                        name=f"{entity.name}_y_bounds",
+                        kind=IntentKind.INVARIANT,
+                        description=(
+                            f"Entity '{entity.name}' y-position must stay within "
+                            f"[{bounds.y_min}, {bounds.y_max}]"
+                        ),
+                        condition=(
+                            f"component_range:{entity.name}.position.y "
+                            f"in [{bounds.y_min}, {bounds.y_max}]"
+                        ),
+                    )
+                )
+        return intents
+
+    def _speed_metrics(self, spec: GameDesignSpec) -> list[IntentSpec]:
+        """Generate METRIC intents for entity speed limits.
+
+        One metric per velocity axis (dx, dy) for each entity with speed_max.
+        """
+        intents: list[IntentSpec] = []
+        for entity in spec.entities:
+            if entity.speed_max is None:
+                continue
+            for axis in ("dx", "dy"):
+                intents.append(
+                    IntentSpec(
+                        name=f"{entity.name}_speed_{axis}",
+                        kind=IntentKind.METRIC,
+                        description=(
+                            f"Entity '{entity.name}' velocity.{axis} must stay within "
+                            f"[{-entity.speed_max}, {entity.speed_max}]"
+                        ),
+                        metric_entity=entity.name,
+                        metric_component="velocity",
+                        metric_field=axis,
+                        metric_range=(-entity.speed_max, entity.speed_max),
+                    )
+                )
+        return intents
+
+    def _interaction_behaviors(self, spec: GameDesignSpec) -> list[IntentSpec]:
+        """Generate BEHAVIOR intents for entity interactions.
+
+        Skips interactions with behavior 'none'.
+        """
+        intents: list[IntentSpec] = []
+        _BOUNCE_BEHAVIORS = {"bounce", "reflect"}
+        _DESTROY_BEHAVIORS = {"destroy", "reflect_and_destroy"}
+
+        for interaction in spec.interactions:
+            behavior = interaction.behavior.lower()
+            if behavior == "none":
+                continue
+
+            trigger = collision(interaction.entity_a, interaction.entity_b)
+
+            if behavior in _BOUNCE_BEHAVIORS:
+                expected = component_changed(interaction.entity_a, "velocity")
+            elif behavior in _DESTROY_BEHAVIORS:
+                expected = entity_despawned(interaction.entity_b)
+            else:
+                # Unknown behavior -- generate with component_changed as fallback
+                expected = component_changed(interaction.entity_a, "velocity")
+
+            name = (
+                f"{interaction.entity_a}_{interaction.entity_b}"
+                f"_{interaction.behavior}"
+            )
+            description = interaction.description or (
+                f"When {interaction.entity_a} collides with "
+                f"{interaction.entity_b}: {interaction.behavior}"
+            )
+
+            intents.append(
+                IntentSpec(
+                    name=name,
+                    kind=IntentKind.BEHAVIOR,
+                    description=description,
+                    trigger=trigger,
+                    expected=expected,
+                    timeout_ticks=600,
+                )
+            )
+        return intents
+
+    def _degenerate_invariants(self, spec: GameDesignSpec) -> list[IntentSpec]:
+        """Generate INVARIANT intents for degenerate state guards."""
+        intents: list[IntentSpec] = []
+        for degen in spec.degenerate_states:
+            intents.append(
+                IntentSpec(
+                    name=f"degenerate_{degen.name}",
+                    kind=IntentKind.INVARIANT,
+                    description=(
+                        degen.description or
+                        f"Degenerate guard: {degen.entity}.{degen.component}"
+                        f".{degen.field} must not be {degen.condition}"
+                    ),
+                    condition=(
+                        f"degenerate_guard:{degen.entity}.{degen.component}"
+                        f".{degen.field} != 0"
+                    ),
+                )
+            )
+        return intents
 
 
 # ---------------------------------------------------------------------------
