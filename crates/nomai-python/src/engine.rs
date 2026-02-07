@@ -273,6 +273,102 @@ impl PyNomaiEngine {
     fn entity_count(&self) -> usize {
         self.tick_loop.world().entity_count()
     }
+
+    /// Return all tracked entities from the manifest pipeline's entity index.
+    ///
+    /// Each entity is returned as a Python dict (via JSON round-trip) containing
+    /// fields like `entity_id`, `tier`, `entity_type`, `role`, `alive`,
+    /// `spawned_at_tick`, and `despawned_at_tick`.
+    fn entity_index(&self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
+        let index = self.tick_loop.manifest().entity_index();
+        let json_mod = py.import("json")?;
+        let mut result = Vec::with_capacity(index.len());
+        for entry in index.values() {
+            let json_str = serde_json::to_string(entry).map_err(|e| {
+                pyo3::exceptions::PyRuntimeError::new_err(format!(
+                    "failed to serialize EntityEntry to JSON: {e} \
+                     -- this is an internal bug, please file an issue"
+                ))
+            })?;
+            let dict = json_mod.call_method1("loads", (json_str,))?;
+            result.push(dict.unbind());
+        }
+        Ok(result)
+    }
+
+    /// Return a single entity's index entry by entity ID, or None if not found.
+    ///
+    /// The entry is returned as a Python dict (via JSON round-trip).
+    ///
+    /// Args:
+    ///     entity_id: The raw entity ID (u64).
+    fn get_entity(&self, py: Python<'_>, entity_id: u64) -> PyResult<Option<PyObject>> {
+        let eid = EntityId::from_raw(entity_id);
+        let index = self.tick_loop.manifest().entity_index();
+        match index.get(&eid) {
+            Some(entry) => {
+                let json_str = serde_json::to_string(entry).map_err(|e| {
+                    pyo3::exceptions::PyRuntimeError::new_err(format!(
+                        "failed to serialize EntityEntry to JSON: {e} \
+                         -- this is an internal bug, please file an issue"
+                    ))
+                })?;
+                let json_mod = py.import("json")?;
+                let dict = json_mod.call_method1("loads", (json_str,))?;
+                Ok(Some(dict.unbind()))
+            }
+            None => Ok(None),
+        }
+    }
+
+    /// Trace the causal chain for a component change on an entity at a given tick.
+    ///
+    /// Finds the most recent matching component change (highest command index)
+    /// for the given entity/component pair in the specified tick's manifest,
+    /// then builds and returns the full causal chain as a Python dict (via
+    /// JSON round-trip). Returns None if the tick is not in the history
+    /// window or no matching component change is found.
+    ///
+    /// Args:
+    ///     entity_id: The raw entity ID (u64).
+    ///     component: The component type name (e.g. "position").
+    ///     tick: The tick number to look up.
+    fn trace_causality(
+        &self,
+        py: Python<'_>,
+        entity_id: u64,
+        component: &str,
+        tick: u64,
+    ) -> PyResult<Option<PyObject>> {
+        let eid = EntityId::from_raw(entity_id);
+        let manifest = match self.tick_loop.manifest_at_tick(tick) {
+            Some(m) => m,
+            None => return Ok(None),
+        };
+
+        // Find the most recent matching component change (last in command order).
+        let change = manifest
+            .component_changes
+            .iter()
+            .rev()
+            .find(|c| c.entity_id == eid && c.component_type_name == component);
+
+        match change {
+            Some(c) => {
+                let chain = self.tick_loop.manifest().build_causal_chain(c);
+                let json_str = serde_json::to_string(&chain).map_err(|e| {
+                    pyo3::exceptions::PyRuntimeError::new_err(format!(
+                        "failed to serialize CausalChain to JSON: {e} \
+                         -- this is an internal bug, please file an issue"
+                    ))
+                })?;
+                let json_mod = py.import("json")?;
+                let dict = json_mod.call_method1("loads", (json_str,))?;
+                Ok(Some(dict.unbind()))
+            }
+            None => Ok(None),
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
