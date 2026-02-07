@@ -1862,9 +1862,7 @@ mod tests {
 
         // Register a custom aggregate that counts alive entities by querying
         // the world's entity_count.
-        pipeline.register_aggregate("world_entity_count", |world| {
-            world.entity_count() as f64
-        });
+        pipeline.register_aggregate("world_entity_count", |world| world.entity_count() as f64);
 
         // Register a second custom aggregate (constant value).
         pipeline.register_aggregate("magic_number", |_world| 42.0);
@@ -1964,8 +1962,14 @@ mod tests {
         }
 
         // With max_history=3, only ticks 2,3,4 should remain.
-        assert!(pipeline.manifest_at_tick(0).is_none(), "tick 0 should be evicted");
-        assert!(pipeline.manifest_at_tick(1).is_none(), "tick 1 should be evicted");
+        assert!(
+            pipeline.manifest_at_tick(0).is_none(),
+            "tick 0 should be evicted"
+        );
+        assert!(
+            pipeline.manifest_at_tick(1).is_none(),
+            "tick 1 should be evicted"
+        );
         assert!(pipeline.manifest_at_tick(2).is_some());
 
         // Build causal chain from the latest change (tick 4).
@@ -1981,7 +1985,10 @@ mod tests {
         // Chain should NOT panic even though ticks 0-1 are evicted.
         // It should contain steps for ticks 4, 3, 2 (within the window).
         assert!(!chain.steps.is_empty(), "chain should have steps");
-        assert_eq!(chain.steps[0].tick, 4, "first step should be the change itself");
+        assert_eq!(
+            chain.steps[0].tick, 4,
+            "first step should be the change itself"
+        );
         // Steps beyond the evicted window are simply absent, not errors.
         assert!(
             chain.steps.len() <= 4,
@@ -2029,7 +2036,10 @@ mod tests {
 
         // Entity A should be marked dead in the index.
         assert!(!pipeline.entity_index()[&entity_a].alive);
-        assert_eq!(pipeline.entity_index()[&entity_a].despawned_at_tick, Some(1));
+        assert_eq!(
+            pipeline.entity_index()[&entity_a].despawned_at_tick,
+            Some(1)
+        );
 
         // Tick 2: Spawn entity B (new entity, possibly reusing the same ECS slot).
         let mut buf3 = CommandBuffer::new();

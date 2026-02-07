@@ -574,6 +574,52 @@ impl Archetype {
         let idx = self.column_index(type_id)?;
         Some(&self.columns[idx].1.vtable)
     }
+
+    /// Serialize all entities in this archetype.
+    ///
+    /// For each entity, calls the appropriate serialize function for each column
+    /// to produce a JSON value. Returns a vector of `(EntityId, Vec<(ComponentTypeId, serde_json::Value)>)`.
+    ///
+    /// # Safety
+    ///
+    /// Each serialize function in `serialize_fns` must correctly cast the raw
+    /// pointer to the concrete component type stored in the corresponding column.
+    pub unsafe fn serialize_all_entities(
+        &self,
+        serialize_fns: &std::collections::HashMap<
+            ComponentTypeId,
+            &(dyn Fn(*const u8) -> serde_json::Value + Send + Sync),
+        >,
+    ) -> Vec<(EntityId, Vec<(ComponentTypeId, serde_json::Value)>)> {
+        let mut result = Vec::with_capacity(self.entities.len());
+        for (row, &entity) in self.entities.iter().enumerate() {
+            let mut components = Vec::new();
+            for (type_id, entry) in &self.columns {
+                if let Some(serialize_fn) = serialize_fns.get(type_id) {
+                    let ptr = entry.column.get_raw(row);
+                    let value = serialize_fn(ptr);
+                    components.push((*type_id, value));
+                }
+            }
+            result.push((entity, components));
+        }
+        result
+    }
+
+    /// Drop all entities and columns, resetting the archetype to an empty state.
+    ///
+    /// This is used during snapshot restore to clear the world state without
+    /// deallocating the archetype's structural metadata.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure no outstanding references to column data exist.
+    pub unsafe fn clear(&mut self) {
+        for (_type_id, entry) in &mut self.columns {
+            entry.column.drop_all(&entry.vtable);
+        }
+        self.entities.clear();
+    }
 }
 
 impl Drop for Archetype {

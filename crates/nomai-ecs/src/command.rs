@@ -354,9 +354,7 @@ impl CommandBuffer {
                     CommandKind::SetComponent { component_name, .. } => {
                         Some(component_name.clone())
                     }
-                    CommandKind::RemoveComponent { component_name } => {
-                        Some(component_name.clone())
-                    }
+                    CommandKind::RemoveComponent { component_name } => Some(component_name.clone()),
                     _ => None,
                 };
                 if let Some(name) = component_name {

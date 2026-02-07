@@ -51,10 +51,7 @@ fn physics_collision_appears_in_manifest() {
     physics.register_entity(
         ball,
         &Position { x: 0.0, y: 0.0 },
-        &Velocity {
-            dx: 100.0,
-            dy: 0.0,
-        },
+        &Velocity { dx: 100.0, dy: 0.0 },
         &PhysicsBody {
             body_type: PhysicsBodyType::Dynamic,
             collider: ColliderShape::Circle { radius: 0.5 },
@@ -126,11 +123,8 @@ fn physics_collision_appears_in_manifest() {
                     );
 
                     // Verify the involved entities are our ball and wall.
-                    let ids: Vec<u64> = event
-                        .involved_entities
-                        .iter()
-                        .map(|e| e.to_raw())
-                        .collect();
+                    let ids: Vec<u64> =
+                        event.involved_entities.iter().map(|e| e.to_raw()).collect();
                     assert!(
                         ids.contains(&ball.to_raw()) && ids.contains(&wall.to_raw()),
                         "collision event should involve ball ({:?}) and wall ({:?}), got {:?}",
@@ -188,10 +182,7 @@ fn physics_updates_position_in_manifest() {
     physics.register_entity(
         entity,
         &Position { x: 0.0, y: 0.0 },
-        &Velocity {
-            dx: 10.0,
-            dy: 0.0,
-        },
+        &Velocity { dx: 10.0, dy: 0.0 },
         &PhysicsBody {
             body_type: PhysicsBodyType::Dynamic,
             collider: ColliderShape::Circle { radius: 0.5 },
@@ -355,9 +346,7 @@ fn physics_and_user_systems_coexist() {
     let manifest = tick_loop.last_manifest().expect("should have manifest");
 
     assert!(
-        manifest
-            .systems_executed
-            .contains(&"counter".to_owned()),
+        manifest.systems_executed.contains(&"counter".to_owned()),
         "user system 'counter' should be in manifest systems_executed: {:?}",
         manifest.systems_executed,
     );
@@ -435,10 +424,7 @@ fn collision_event_carries_collision_response_causality() {
     physics.register_entity(
         ball,
         &Position { x: 0.0, y: 0.0 },
-        &Velocity {
-            dx: 200.0,
-            dy: 0.0,
-        },
+        &Velocity { dx: 200.0, dy: 0.0 },
         &PhysicsBody {
             body_type: PhysicsBodyType::Dynamic,
             collider: ColliderShape::Circle { radius: 0.5 },
@@ -550,10 +536,7 @@ fn physics_determinism_identical_runs() {
         physics.register_entity(
             ball,
             &Position { x: 0.0, y: 0.0 },
-            &Velocity {
-                dx: 50.0,
-                dy: 10.0,
-            },
+            &Velocity { dx: 50.0, dy: 10.0 },
             &PhysicsBody {
                 body_type: PhysicsBodyType::Dynamic,
                 collider: ColliderShape::Circle { radius: 0.5 },
@@ -603,7 +586,11 @@ fn physics_determinism_identical_runs() {
         let mut summaries = Vec::new();
         for tick in 0..50 {
             if let Some(manifest) = tick_loop.manifest_at_tick(tick) {
-                summaries.push((tick, manifest.events.len(), manifest.component_changes.len()));
+                summaries.push((
+                    tick,
+                    manifest.events.len(),
+                    manifest.component_changes.len(),
+                ));
             }
         }
 
@@ -629,10 +616,7 @@ fn physics_determinism_identical_runs() {
         "ball final velocity diverged: run1={:?}, run2={:?}",
         run1.ball_vel, run2.ball_vel,
     );
-    assert_eq!(
-        run1.tick_count, run2.tick_count,
-        "tick count diverged"
-    );
+    assert_eq!(run1.tick_count, run2.tick_count, "tick count diverged");
 
     // Also compare manifest summaries.
     assert_eq!(
@@ -640,7 +624,12 @@ fn physics_determinism_identical_runs() {
         run2.manifest_summaries.len(),
         "both runs should produce the same number of manifests"
     );
-    for (i, (s1, s2)) in run1.manifest_summaries.iter().zip(run2.manifest_summaries.iter()).enumerate() {
+    for (i, (s1, s2)) in run1
+        .manifest_summaries
+        .iter()
+        .zip(run2.manifest_summaries.iter())
+        .enumerate()
+    {
         assert_eq!(
             s1, s2,
             "manifest summary diverged at index {i}: run1={s1:?}, run2={s2:?}"

@@ -17,6 +17,15 @@ blake3 = { workspace = true }
 rand = { workspace = true }
 rand_pcg = { workspace = true }
 rapier2d = { workspace = true }
+wgpu = { workspace = true, optional = true }
+winit = { workspace = true, optional = true }
+bytemuck = { workspace = true, optional = true }
+bytemuck_derive = { workspace = true, optional = true }
+pollster = { workspace = true, optional = true }
+
+[features]
+default = []
+renderer = ["dep:wgpu", "dep:winit", "dep:bytemuck", "dep:bytemuck_derive", "dep:pollster"]
 
 [dev-dependencies]
 proptest = "1"

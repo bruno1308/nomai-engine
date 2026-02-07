@@ -105,8 +105,8 @@ fn bench_native_equivalent_50_ops(c: &mut Criterion) {
 fn bench_wasm_noop_tick(c: &mut Criterion) {
     let bytes = fixture_bytes("noop.wat");
     let config = WasmConfig::default();
-    let mut module = WasmModule::from_bytes(&config, &bytes)
-        .expect("noop.wat should compile and instantiate");
+    let mut module =
+        WasmModule::from_bytes(&config, &bytes).expect("noop.wat should compile and instantiate");
 
     c.bench_function("wasm_noop_tick", |b| {
         b.iter(|| {
@@ -133,12 +133,14 @@ fn bench_wasm_hot_swap(c: &mut Criterion) {
         // We need a fresh module for each iteration because swap replaces
         // the instance in-place. We pre-create v1 once and swap to v2 each
         // iteration, then swap back.
-        let mut module = WasmModule::from_bytes(&config, &v1_bytes)
-            .expect("noop.wat should compile");
+        let mut module =
+            WasmModule::from_bytes(&config, &v1_bytes).expect("noop.wat should compile");
 
         b.iter(|| {
             module.swap(&v2_bytes).expect("swap to v2 should succeed");
-            module.swap(&v1_bytes).expect("swap back to v1 should succeed");
+            module
+                .swap(&v1_bytes)
+                .expect("swap back to v1 should succeed");
         });
     });
 }

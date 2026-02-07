@@ -26,3 +26,8 @@ wasmtime = "27.0.0"
 rapier2d = { version = "0.22.0", features = ["enhanced-determinism"] }
 criterion = { version = "0.5", features = ["html_reports"] }
 pyo3 = { version = "0.23.3", features = ["extension-module"] }
+wgpu = "23.0.0"
+winit = "0.30.8"
+bytemuck = "1"
+bytemuck_derive = "1"
+pollster = "0.4"

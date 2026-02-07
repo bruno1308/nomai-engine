@@ -101,10 +101,23 @@ pub struct TickDiagnostics {
 // ---------------------------------------------------------------------------
 
 /// A single frame of recorded input for replay.
+///
+/// Uses `BTreeMap` instead of `HashMap` for deterministic iteration order,
+/// which ensures BLAKE3 hashes are reproducible across processes.
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct InputFrame {
     /// Arbitrary key-value pairs representing inputs for this tick.
-    pub inputs: std::collections::HashMap<String, serde_json::Value>,
+    ///
+    /// Stored in a `BTreeMap` so serialization order is deterministic,
+    /// guaranteeing stable BLAKE3 hashes across runs.
+    pub inputs: std::collections::BTreeMap<String, serde_json::Value>,
+}
+
+impl InputFrame {
+    /// Returns `true` if this input frame contains no inputs.
+    pub fn is_empty(&self) -> bool {
+        self.inputs.is_empty()
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -377,7 +390,8 @@ impl TickLoop {
             // WASM modules read entity count, tick number, and sim time
             // from the host state. A full component snapshot can be
             // provided externally via wasm_module_mut() before calling tick().
-            wasm.host_state_mut().begin_tick(self.tick_counter, sim_time);
+            wasm.host_state_mut()
+                .begin_tick(self.tick_counter, sim_time);
             wasm.host_state_mut().entity_count = self.world.entity_count();
 
             // Call WASM tick (trap-safe: log and skip on failure).
@@ -437,8 +451,7 @@ impl TickLoop {
             .process_commands(&applied, self.tick_counter, &self.world);
 
         // Phase 7: Finalize manifest for this tick (before advancing counter).
-        let mut system_names: Vec<String> =
-            self.systems.iter().map(|s| s.name.clone()).collect();
+        let mut system_names: Vec<String> = self.systems.iter().map(|s| s.name.clone()).collect();
         if self.physics.is_some() {
             system_names.push(crate::physics::PHYSICS_SYSTEM_NAME.to_owned());
         }
@@ -621,10 +634,7 @@ impl TickLoop {
     /// Returns [`WasmError`](nomai_wasm_host::WasmError) if the new bytes
     /// fail compilation, are missing the `tick()` export, or have invalid
     /// imports.
-    pub fn swap_wasm_module(
-        &mut self,
-        bytes: &[u8],
-    ) -> Result<(), nomai_wasm_host::WasmError> {
+    pub fn swap_wasm_module(&mut self, bytes: &[u8]) -> Result<(), nomai_wasm_host::WasmError> {
         match self.wasm_module {
             Some(ref mut module) => module.swap(bytes),
             None => Err(nomai_wasm_host::WasmError::Runtime(
@@ -641,6 +651,57 @@ impl TickLoop {
     /// Mutable access to the WASM module, if attached.
     pub fn wasm_module_mut(&mut self) -> Option<&mut nomai_wasm_host::WasmModule> {
         self.wasm_module.as_mut()
+    }
+
+    // -- snapshot helpers (used by crate::snapshot) ---------------------------
+
+    /// Set the tick counter directly (used during snapshot restore).
+    ///
+    /// This bypasses the normal tick advancement and should only be used
+    /// by the snapshot restore path. Public within the crate only.
+    pub(crate) fn set_tick_counter(&mut self, counter: u64) {
+        self.tick_counter = counter;
+    }
+
+    /// Reset the manifest pipeline to a fresh instance.
+    ///
+    /// Used during snapshot restore to discard stale manifest history.
+    /// Public within the crate only.
+    pub(crate) fn reset_manifest(&mut self) {
+        self.manifest = ManifestPipeline::new();
+    }
+
+    /// Clear the command buffer, discarding any pending commands.
+    ///
+    /// Used during snapshot restore to prevent stale commands from leaking
+    /// into the next tick. Public within the crate only.
+    pub(crate) fn clear_command_buffer(&mut self) {
+        self.command_buffer = CommandBuffer::new();
+    }
+
+    /// Reconstruct the physics world from current ECS state.
+    ///
+    /// If a physics world is attached, clears all rapier state and
+    /// re-registers entities from their ECS Position, Velocity, and
+    /// PhysicsBody components. Used during snapshot restore since rapier2d
+    /// types are not serializable. Public within the crate only.
+    pub(crate) fn reconstruct_physics(&mut self) {
+        if let Some(ref mut physics) = self.physics {
+            physics.reconstruct_from_world(&self.world);
+        }
+    }
+
+    /// Set the fixed time step directly (used during snapshot restore).
+    ///
+    /// This overrides the `fixed_dt` from the original config so that the
+    /// restored simulation runs at the same time step as the captured state.
+    /// Public within the crate only.
+    pub(crate) fn set_fixed_dt(&mut self, dt: f64) {
+        assert!(
+            dt > 0.0 && dt.is_finite(),
+            "fixed_dt must be positive and finite, got {dt}"
+        );
+        self.fixed_dt = dt;
     }
 }
 
