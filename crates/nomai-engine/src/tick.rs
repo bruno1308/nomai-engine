@@ -2,10 +2,15 @@
 //!
 //! The [`TickLoop`] drives the Nomai Engine simulation forward. Each tick:
 //!
-//! 1. All registered systems run in declaration order, each receiving a shared
+//! 1. The manifest pipeline begins a new tick (clearing per-tick state).
+//! 2. All registered systems run in declaration order, each receiving a shared
 //!    reference to the [`World`] and a mutable reference to the [`CommandBuffer`].
-//! 2. The command buffer is applied to the world (FIFO, deterministic).
-//! 3. The tick counter and simulation time advance.
+//! 3. The command buffer is applied to the world (FIFO, deterministic).
+//! 4. Applied commands are fed into the manifest pipeline (spawns, despawns,
+//!    component changes).
+//! 5. The manifest pipeline finalizes the tick, computing aggregates and
+//!    producing a [`TickManifest`].
+//! 6. The tick counter and simulation time advance.
 //!
 //! Because system ordering is fixed, the command buffer is FIFO, and there is no
 //! non-deterministic input (randomness must use a seeded RNG), the tick loop is
@@ -39,6 +44,7 @@ use std::time::{Duration, Instant};
 
 use nomai_ecs::command::CommandBuffer;
 use nomai_ecs::world::World;
+use nomai_manifest::manifest::{ManifestPipeline, TickManifest};
 
 // ---------------------------------------------------------------------------
 // TickConfig
@@ -160,6 +166,8 @@ pub struct TickLoop {
     last_diagnostics: TickDiagnostics,
     /// Current tick's input frame (set before tick() for replay).
     current_input: InputFrame,
+    /// Manifest pipeline: produces per-tick structured state snapshots.
+    manifest: ManifestPipeline,
 }
 
 impl TickLoop {
@@ -181,6 +189,7 @@ impl TickLoop {
             config,
             last_diagnostics: TickDiagnostics::default(),
             current_input: InputFrame::default(),
+            manifest: ManifestPipeline::new(),
         }
     }
 
@@ -277,32 +286,53 @@ impl TickLoop {
 
     /// Execute one simulation tick.
     ///
-    /// 1. Runs all registered systems in order. Each system reads from the
-    ///    world and writes commands to the shared command buffer.
-    /// 2. Applies the command buffer to the world (deterministic FIFO order).
-    /// 3. Advances the tick counter and simulation time.
+    /// Each tick follows a six-phase flow:
     ///
-    /// Returns the list of processed commands from this tick (useful for the
-    /// change journal / manifest pipeline). Check each command's
-    /// `applied_successfully` field to distinguish real mutations from failed
-    /// attempts.
+    /// 1. **Begin manifest tick** — clears per-tick manifest state.
+    /// 2. **Run systems** — all registered systems execute in order, each
+    ///    reading from the world and writing to the command buffer.
+    /// 3. **Apply commands** — the command buffer is applied to the world
+    ///    (deterministic FIFO order).
+    /// 4. **Process commands into manifest** — spawns, despawns, and component
+    ///    changes are recorded in the manifest pipeline.
+    /// 5. **Finalize manifest** — aggregates are computed and the
+    ///    [`TickManifest`] is pushed to the rolling history.
+    /// 6. **Advance tick counter** — tick count and simulation time step
+    ///    forward.
+    ///
+    /// Returns the list of processed commands from this tick. Check each
+    /// command's `applied_successfully` field to distinguish real mutations
+    /// from failed attempts.
     pub fn tick(&mut self) -> Vec<nomai_ecs::command::Command> {
         let tick_start = Instant::now();
         let mut system_times = Vec::with_capacity(self.systems.len());
 
-        // Phase 1: Run all systems in registered order with timing.
+        // Phase 1: Begin manifest tick (clear per-tick state).
+        self.manifest.begin_tick();
+
+        // Phase 2: Run all systems in registered order with timing.
         for system in &self.systems {
             let sys_start = Instant::now();
             (system.func)(&self.world, &mut self.command_buffer);
             system_times.push((system.name.clone(), sys_start.elapsed()));
         }
 
-        // Phase 2: Apply command buffer to the world with timing.
+        // Phase 3: Apply command buffer to the world with timing.
         let apply_start = Instant::now();
         let applied = self.command_buffer.apply(&mut self.world);
         let command_apply_time = apply_start.elapsed();
 
-        // Phase 3: Advance tick counter.
+        // Phase 4: Feed applied commands into the manifest pipeline.
+        self.manifest
+            .process_commands(&applied, self.tick_counter, &self.world);
+
+        // Phase 5: Finalize manifest for this tick (before advancing counter).
+        let system_names: Vec<String> = self.systems.iter().map(|s| s.name.clone()).collect();
+        let sim_time = self.tick_counter as f64 * self.fixed_dt;
+        self.manifest
+            .end_tick(self.tick_counter, sim_time, system_names, &self.world);
+
+        // Phase 6: Advance tick counter.
         self.tick_counter += 1;
 
         self.last_diagnostics = TickDiagnostics {
@@ -391,6 +421,42 @@ impl TickLoop {
     /// Whether headless mode is enabled.
     pub fn is_headless(&self) -> bool {
         self.config.headless
+    }
+
+    /// Access the manifest pipeline (read-only).
+    pub fn manifest(&self) -> &ManifestPipeline {
+        &self.manifest
+    }
+
+    /// Access the manifest pipeline mutably (for recording events).
+    pub fn manifest_mut(&mut self) -> &mut ManifestPipeline {
+        &mut self.manifest
+    }
+
+    /// Get the manifest for the most recent tick.
+    ///
+    /// Returns `None` if no ticks have been executed yet.
+    pub fn last_manifest(&self) -> Option<&TickManifest> {
+        if self.tick_counter == 0 {
+            return None;
+        }
+        self.manifest.manifest_at_tick(self.tick_counter - 1)
+    }
+
+    /// Get the manifest for a specific tick (within the history window).
+    ///
+    /// Returns `None` if the tick is not in the rolling history window
+    /// (default: last 60 ticks).
+    pub fn manifest_at_tick(&self, tick: u64) -> Option<&TickManifest> {
+        self.manifest.manifest_at_tick(tick)
+    }
+
+    /// Mutable access to the command buffer for external command injection.
+    ///
+    /// This is used by Python bindings and other external systems that need
+    /// to inject commands before the next tick.
+    pub fn command_buffer_mut(&mut self) -> &mut CommandBuffer {
+        &mut self.command_buffer
     }
 }
 
@@ -1162,5 +1228,92 @@ mod tests {
             tick_loop.current_input().inputs.get("move_x"),
             Some(&serde_json::json!(1.0))
         );
+    }
+
+    // -- 21. Manifest integration: tick produces manifest -------------------
+
+    #[test]
+    fn tick_produces_manifest() {
+        let mut world = setup_world();
+        world.spawn_with(Counter(0));
+        let mut tick_loop = TickLoop::new(world, TickConfig::default());
+        tick_loop.add_system("counter", counter_system);
+
+        tick_loop.tick();
+
+        let manifest = tick_loop
+            .last_manifest()
+            .expect("should have manifest after tick");
+        assert_eq!(manifest.tick, 0);
+        assert!(manifest.commands_processed > 0);
+        assert_eq!(manifest.systems_executed, vec!["counter"]);
+    }
+
+    // -- 22. Manifest history accessible across ticks ----------------------
+
+    #[test]
+    fn manifest_history_accessible() {
+        let mut world = setup_world();
+        world.spawn_with(Counter(0));
+        let mut tick_loop = TickLoop::new(world, TickConfig::default());
+        tick_loop.add_system("counter", counter_system);
+
+        tick_loop.run_ticks(10);
+
+        for tick in 0..10 {
+            let manifest = tick_loop.manifest_at_tick(tick);
+            assert!(manifest.is_some(), "manifest at tick {tick} missing");
+            assert_eq!(manifest.unwrap().tick, tick);
+        }
+    }
+
+    // -- 23. Manifest records spawns and despawns --------------------------
+
+    #[test]
+    fn manifest_records_spawns_and_despawns() {
+        let mut world = setup_world();
+        // Pre-spawn an entity to despawn later.
+        let doomed = world.spawn_with(Health(0));
+        let mut tick_loop = TickLoop::new(world, TickConfig::default());
+
+        fn spawn_and_despawn_system(world: &World, cmds: &mut CommandBuffer) {
+            // Spawn a new semantic entity.
+            cmds.spawn_semantic(
+                nomai_ecs::prelude::EntityIdentity {
+                    entity_type: "test".to_owned(),
+                    role: "unit".to_owned(),
+                    spawned_by: nomai_ecs::prelude::SystemId(0),
+                    requirement_id: None,
+                },
+                vec![],
+                nomai_ecs::prelude::SystemId(0),
+                nomai_ecs::prelude::CausalReason::GameRule("test_spawn".to_owned()),
+            );
+            // Despawn any entity with Health(0).
+            for (entity, (health,)) in world.query::<(&Health,)>() {
+                if health.0 == 0 {
+                    cmds.despawn(
+                        entity,
+                        nomai_ecs::prelude::SystemId(0),
+                        nomai_ecs::prelude::CausalReason::GameRule("test_despawn".to_owned()),
+                    );
+                }
+            }
+        }
+
+        tick_loop.add_system("spawn_and_despawn", spawn_and_despawn_system);
+
+        tick_loop.tick();
+        let manifest = tick_loop.last_manifest().unwrap();
+        assert!(
+            !manifest.entity_spawns.is_empty(),
+            "manifest should record entity spawn"
+        );
+        assert!(
+            !manifest.entity_despawns.is_empty(),
+            "manifest should record entity despawn"
+        );
+        // The doomed entity should have been despawned.
+        assert!(!tick_loop.world().is_alive(doomed));
     }
 }

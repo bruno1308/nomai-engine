@@ -35,6 +35,9 @@ pub mod tick;
 /// Re-export the ECS crate for convenience.
 pub use nomai_ecs;
 
+/// Re-export the manifest crate for convenience.
+pub use nomai_manifest;
+
 // ---------------------------------------------------------------------------
 // Prelude
 // ---------------------------------------------------------------------------
@@ -46,4 +49,11 @@ pub mod prelude {
 
     // Engine-specific exports.
     pub use crate::tick::{InputFrame, SystemFn, TickConfig, TickDiagnostics, TickLoop};
+
+    // Manifest types for convenient access.
+    pub use nomai_manifest::journal::{ChangeJournal, ComponentChange};
+    pub use nomai_manifest::manifest::{
+        Aggregates, CausalChain, CausalStep, EntityEntry, GameEvent, ManifestPipeline,
+        TickManifest,
+    };
 }
