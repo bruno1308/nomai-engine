@@ -38,6 +38,7 @@ pub mod entity;
 pub mod identity;
 #[allow(unsafe_code)]
 pub mod query;
+pub mod snapshot;
 #[allow(unsafe_code)]
 pub mod world;
 
@@ -50,23 +51,15 @@ pub mod world;
 pub enum EcsError {
     /// The entity does not exist (stale generation or never allocated).
     #[error("entity {entity:?} does not exist (stale or never allocated)")]
-    StaleEntity {
-        entity: entity::EntityId,
-    },
+    StaleEntity { entity: entity::EntityId },
 
     /// A component type was referenced that has not been registered.
     #[error("component type '{name}' not registered. Registered components: [{registered}]")]
-    UnknownComponent {
-        name: String,
-        registered: String,
-    },
+    UnknownComponent { name: String, registered: String },
 
     /// Deserialization of a component value failed.
     #[error("failed to deserialize component '{component}': {details}")]
-    ComponentDeserializationError {
-        component: String,
-        details: String,
-    },
+    ComponentDeserializationError { component: String, details: String },
 }
 
 // ---------------------------------------------------------------------------
@@ -81,6 +74,7 @@ pub mod prelude {
     pub use crate::entity::EntityId;
     pub use crate::identity::{EntityIdentity, Identity, IdentityTier, PoolIdentity, SystemId};
     pub use crate::query::{Query, QueryItem, QueryIter, QueryIterMut};
+    pub use crate::snapshot::{AllocatorSnapshot, EntitySnapshot, WorldSnapshot};
     pub use crate::world::{ComponentBundle, World};
     pub use crate::EcsError;
 }

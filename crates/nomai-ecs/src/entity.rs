@@ -143,6 +143,31 @@ impl EntityAllocator {
     pub fn alive_count(&self) -> usize {
         self.alive.iter().filter(|&&a| a).count()
     }
+
+    /// Capture the allocator state for snapshot/restore.
+    ///
+    /// Returns `(generations, alive, free_indices)` as owned vectors.
+    pub fn snapshot_state(&self) -> (Vec<u32>, Vec<bool>, Vec<u32>) {
+        let free: Vec<u32> = self.free_indices.iter().copied().collect();
+        (self.generations.clone(), self.alive.clone(), free)
+    }
+
+    /// Restore allocator state from a previously captured snapshot.
+    ///
+    /// This reconstructs the allocator exactly as it was at the time of the
+    /// snapshot, preserving generations, alive flags, and the free-list order.
+    pub fn restore_from_snapshot(
+        generations: Vec<u32>,
+        alive: Vec<bool>,
+        free_indices: Vec<u32>,
+    ) -> Self {
+        Self {
+            generations,
+            alive,
+            free_indices: VecDeque::from(free_indices),
+        }
+    }
+
 }
 
 impl Default for EntityAllocator {

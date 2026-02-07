@@ -95,7 +95,7 @@ impl DeserializerRegistry {
     ///
     /// Returns `None` if the component type has no registered deserializer,
     /// or `Some(Err(...))` if deserialization fails.
-    fn deserialize(
+    pub(crate) fn deserialize(
         &self,
         id: ComponentTypeId,
         value: &serde_json::Value,
@@ -114,6 +114,69 @@ impl std::fmt::Debug for DeserializerRegistry {
             .field(
                 "count",
                 &self.deserializers.iter().filter(|d| d.is_some()).count(),
+            )
+            .finish()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// SerializerRegistry -- type-erased raw bytes -> JSON conversion
+// ---------------------------------------------------------------------------
+
+/// Type-erased function that serializes raw column bytes into a
+/// `serde_json::Value`. The function casts the raw `*const u8` to the concrete
+/// component type and calls `serde_json::to_value`.
+type SerializeFn = Box<dyn Fn(*const u8) -> serde_json::Value + Send + Sync>;
+
+/// Registry of component serializers, indexed by [`ComponentTypeId`].
+///
+/// Each registered component type gets a serializer that converts raw column
+/// bytes into `serde_json::Value` for snapshot capture.
+pub(crate) struct SerializerRegistry {
+    serializers: Vec<Option<SerializeFn>>,
+}
+
+impl SerializerRegistry {
+    fn new() -> Self {
+        Self {
+            serializers: Vec::new(),
+        }
+    }
+
+    fn register<T>(&mut self, id: ComponentTypeId)
+    where
+        T: Clone + Send + Sync + 'static + serde::Serialize + for<'de> serde::Deserialize<'de>,
+    {
+        let idx = id.0 as usize;
+        if idx >= self.serializers.len() {
+            self.serializers.resize_with(idx + 1, || None);
+        }
+        self.serializers[idx] = Some(Box::new(|ptr: *const u8| {
+            #[allow(unsafe_code)]
+            let value = unsafe { &*(ptr as *const T) };
+            serde_json::to_value(value).expect("component serialization should not fail")
+        }));
+    }
+
+    /// Get a reference to the serialize function for a given component type.
+    pub(crate) fn get(
+        &self,
+        id: ComponentTypeId,
+    ) -> Option<&(dyn Fn(*const u8) -> serde_json::Value + Send + Sync)> {
+        let idx = id.0 as usize;
+        self.serializers
+            .get(idx)
+            .and_then(|opt| opt.as_ref())
+            .map(|f| f.as_ref())
+    }
+}
+
+impl std::fmt::Debug for SerializerRegistry {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SerializerRegistry")
+            .field(
+                "count",
+                &self.serializers.iter().filter(|s| s.is_some()).count(),
             )
             .finish()
     }
@@ -179,7 +242,7 @@ impl RawComponentBuf {
     }
 
     /// Get a pointer to the stored data.
-    fn as_ptr(&self) -> *const u8 {
+    pub(crate) fn as_ptr(&self) -> *const u8 {
         if self.layout.size() > 0 {
             self.ptr
         } else {
@@ -322,18 +385,20 @@ pub struct World {
     vtable_registry: VtableRegistry,
     /// Deserializer registry for JSON -> typed component conversion.
     pub(crate) deserializer_registry: DeserializerRegistry,
+    /// Serializer registry for raw bytes -> JSON conversion (snapshot support).
+    pub(crate) serializer_registry: SerializerRegistry,
     /// All archetypes, indexed by `ArchetypeId.0`.
     pub(crate) archetypes: Vec<Archetype>,
     /// Maps a sorted set of component type IDs to an archetype.
-    archetype_index: HashMap<Vec<ComponentTypeId>, ArchetypeId>,
+    pub(crate) archetype_index: HashMap<Vec<ComponentTypeId>, ArchetypeId>,
     /// Maps entity ID -> (archetype, row).
     pub(crate) entity_locations: HashMap<EntityId, EntityLocation>,
     /// Cache: sorted component type set -> matching archetype IDs.
     /// Invalidated when new archetypes are created.
     /// Uses RefCell for interior mutability (preserves &self on query methods).
-    query_cache: RefCell<HashMap<Vec<ComponentTypeId>, Vec<ArchetypeId>>>,
+    pub(crate) query_cache: RefCell<HashMap<Vec<ComponentTypeId>, Vec<ArchetypeId>>>,
     /// Monotonic counter incremented when archetypes change.
-    archetype_generation: u64,
+    pub(crate) archetype_generation: u64,
 }
 
 impl std::fmt::Debug for World {
@@ -358,6 +423,7 @@ impl World {
             registry: ComponentRegistry::new(),
             vtable_registry: VtableRegistry::new(),
             deserializer_registry: DeserializerRegistry::new(),
+            serializer_registry: SerializerRegistry::new(),
             archetypes: Vec::new(),
             archetype_index: HashMap::new(),
             entity_locations: HashMap::new(),
@@ -386,6 +452,7 @@ impl World {
         let id = self.registry.register::<T>(name);
         self.vtable_registry.register::<T>(id);
         self.deserializer_registry.register::<T>(id);
+        self.serializer_registry.register::<T>(id);
         id
     }
 
@@ -402,13 +469,14 @@ impl World {
         let id = self.registry.register_dynamic::<T>(name);
         self.vtable_registry.register::<T>(id);
         self.deserializer_registry.register::<T>(id);
+        self.serializer_registry.register::<T>(id);
         id
     }
 
     // -- archetype management -----------------------------------------------
 
     /// Find or create the archetype for a given sorted set of component types.
-    fn get_or_create_archetype(&mut self, type_ids: &[ComponentTypeId]) -> ArchetypeId {
+    pub(crate) fn get_or_create_archetype(&mut self, type_ids: &[ComponentTypeId]) -> ArchetypeId {
         if let Some(&id) = self.archetype_index.get(type_ids) {
             return id;
         }
@@ -1220,8 +1288,14 @@ mod tests {
         let result = world.set_component_by_name(e, "nonexistent", &serde_json::json!(42));
         let err = result.unwrap_err();
         let msg = format!("{err}");
-        assert!(msg.contains("position"), "error should list registered components: {msg}");
-        assert!(msg.contains("velocity"), "error should list registered components: {msg}");
+        assert!(
+            msg.contains("position"),
+            "error should list registered components: {msg}"
+        );
+        assert!(
+            msg.contains("velocity"),
+            "error should list registered components: {msg}"
+        );
     }
 
     #[test]
@@ -1231,7 +1305,8 @@ mod tests {
         let e2 = world.spawn_with(Pos { x: 2.0, y: 0.0 });
         let e3 = world.spawn_with(Pos { x: 3.0, y: 0.0 });
 
-        let to_despawn: Vec<EntityId> = world.query::<(&Pos,)>()
+        let to_despawn: Vec<EntityId> = world
+            .query::<(&Pos,)>()
             .filter(|(_, (pos,))| pos.x > 1.5)
             .map(|(e, _)| e)
             .collect();
@@ -1252,9 +1327,7 @@ mod tests {
         let e1 = world.spawn_with(Pos { x: 1.0, y: 0.0 });
         let e2 = world.spawn_with(Pos { x: 2.0, y: 0.0 });
 
-        let entities: Vec<EntityId> = world.query::<(&Pos,)>()
-            .map(|(e, _)| e)
-            .collect();
+        let entities: Vec<EntityId> = world.query::<(&Pos,)>().map(|(e, _)| e).collect();
 
         for e in entities {
             world.insert_component(e, Vel { dx: 1.0, dy: 0.0 }).unwrap();
@@ -1271,14 +1344,20 @@ mod tests {
         let result = world.set_component_by_name(e, "position", &serde_json::json!("not a struct"));
         assert!(result.is_err());
         let msg = format!("{}", result.unwrap_err());
-        assert!(msg.contains("position"), "error should mention component name: {msg}");
+        assert!(
+            msg.contains("position"),
+            "error should mention component name: {msg}"
+        );
     }
 
     #[test]
     fn query_cache_returns_same_results() {
         let mut world = setup_world();
         for i in 0..100 {
-            world.spawn_with(Pos { x: i as f32, y: 0.0 });
+            world.spawn_with(Pos {
+                x: i as f32,
+                y: 0.0,
+            });
         }
 
         // First query: populates cache.
@@ -1304,7 +1383,10 @@ mod tests {
         world.insert_component(e, Vel { dx: 1.0, dy: 0.0 }).unwrap();
 
         let gen_after = world.archetype_generation();
-        assert!(gen_after > gen_before, "archetype generation should increment on new archetype");
+        assert!(
+            gen_after > gen_before,
+            "archetype generation should increment on new archetype"
+        );
 
         // Query with Pos should still find the entity (in new archetype).
         let count2 = world.query::<(&Pos,)>().count();
@@ -1329,7 +1411,10 @@ mod tests {
         world.spawn_with(Pos { x: 2.0, y: 0.0 });
 
         let gen_after = world.archetype_generation();
-        assert_eq!(gen_before, gen_after, "generation should NOT change for existing archetype");
+        assert_eq!(
+            gen_before, gen_after,
+            "generation should NOT change for existing archetype"
+        );
 
         // Query should still be correct (cache was not invalidated, but
         // the cache stores archetype IDs not entity counts, so it's still valid).
