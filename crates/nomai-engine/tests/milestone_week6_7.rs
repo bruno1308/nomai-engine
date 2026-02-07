@@ -9,6 +9,11 @@
 //!    systems and no diverging inputs, verify they produce the same hash.
 //! 4. Headless simulation -- runs without GPU/window, produces manifests.
 //!
+//! **Note:** The windowed/renderer acceptance criterion (Issue #40: "human can
+//! see and play breakout") is validated by the `headless_toggle_tests.rs`
+//! feature-gated tests and manual verification -- it cannot be automated in CI
+//! without a GPU and display.
+//!
 //! All tests run headless (`headless: true` in `TickConfig`).
 
 use nomai_ecs::prelude::*;
@@ -102,6 +107,10 @@ fn build_tick_loop_with_entities() -> TickLoop {
 
 /// Build a tick loop with physics entities (ball + wall) and user systems.
 /// Used for physics-aware snapshot/replay tests.
+///
+/// Note: `movement_system` is intentionally omitted because rapier2d handles
+/// position/velocity updates for physics entities via the physics step. Adding
+/// the user-level movement system would double-apply velocity changes.
 fn build_physics_tick_loop() -> TickLoop {
     let mut world = setup_world();
 
@@ -305,6 +314,11 @@ fn milestone_replay_determinism() {
 
     assert!(result.completed, "replay should complete successfully");
     assert_eq!(result.ticks_replayed, 200, "should replay all 200 ticks");
+    assert_eq!(
+        replay_loop.tick_count(),
+        200,
+        "replay tick count should match recording"
+    );
     assert!(
         result.first_divergence.is_none(),
         "no divergence expected: same systems + same inputs. Got: {:?}",
