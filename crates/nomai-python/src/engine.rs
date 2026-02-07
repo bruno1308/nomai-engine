@@ -8,6 +8,9 @@
 use nomai_ecs::command::CausalReason;
 use nomai_ecs::entity::EntityId;
 use nomai_ecs::identity::{EntityIdentity, SystemId};
+use nomai_engine::physics::{
+    ColliderShape, PhysicsBody, PhysicsBodyType, PhysicsWorld, Position, Velocity,
+};
 use nomai_engine::tick::{TickConfig, TickLoop};
 use nomai_manifest::manifest::TickManifest;
 use nomai_wasm_host::{WasmConfig, WasmModule};
@@ -267,6 +270,188 @@ impl PyNomaiEngine {
                 "no WASM module loaded -- call load_gameplay_wasm() first",
             )),
         }
+    }
+
+    /// Initialize the physics world with zero gravity (for breakout).
+    ///
+    /// Must be called before `register_physics_entity()`. Creates a rapier2d
+    /// physics world and attaches it to the tick loop. Also registers the
+    /// `"position"` and `"velocity"` component types required by the physics
+    /// step, if they are not already registered.
+    ///
+    /// Calling this again replaces the existing physics world (all registered
+    /// physics entities are lost).
+    fn init_physics(&mut self) -> PyResult<()> {
+        if self.tick_loop.physics().is_some() {
+            tracing::warn!("init_physics() called again -- replacing existing physics world");
+        }
+        self.tick_loop.set_physics(PhysicsWorld::new_zero_gravity());
+        // Auto-register position/velocity so the physics step's commands
+        // don't fail with "unknown component" errors.
+        self.tick_loop
+            .world_mut()
+            .register_dynamic_component::<serde_json::Value>("position");
+        self.tick_loop
+            .world_mut()
+            .register_dynamic_component::<serde_json::Value>("velocity");
+        Ok(())
+    }
+
+    /// Register a physics entity with position, velocity, and body type.
+    ///
+    /// The entity must already exist in the ECS world. Spawn it with
+    /// `spawn_entity()`, call `tick()` to apply the spawn command, then
+    /// look up the entity ID via `entity_index()` or `get_entity()`.
+    /// The physics world must be initialized (via `init_physics`).
+    ///
+    /// Args:
+    ///     entity_id: Raw entity ID (look up via entity_index after spawning).
+    ///     x: Horizontal position coordinate (must be finite).
+    ///     y: Vertical position coordinate (must be finite).
+    ///     dx: Horizontal velocity component (must be finite).
+    ///     dy: Vertical velocity component (must be finite).
+    ///     body_type: One of "dynamic", "kinematic", or "static".
+    ///     collider_type: One of "circle" or "box".
+    ///     collider_radius: Radius for circle colliders (must be > 0, required if "circle").
+    ///     collider_half_width: Half-width for box colliders (must be > 0, required if "box").
+    ///     collider_half_height: Half-height for box colliders (must be > 0, required if "box").
+    ///     restitution: Bounciness coefficient (must be >= 0.0 and finite, default 0.5).
+    ///     is_sensor: Whether this is a sensor (default false).
+    #[pyo3(signature = (
+        entity_id,
+        x,
+        y,
+        dx,
+        dy,
+        body_type,
+        collider_type,
+        collider_radius = None,
+        collider_half_width = None,
+        collider_half_height = None,
+        restitution = 0.5,
+        is_sensor = false,
+    ))]
+    #[allow(clippy::too_many_arguments)]
+    fn register_physics_entity(
+        &mut self,
+        entity_id: u64,
+        x: f64,
+        y: f64,
+        dx: f64,
+        dy: f64,
+        body_type: &str,
+        collider_type: &str,
+        collider_radius: Option<f64>,
+        collider_half_width: Option<f64>,
+        collider_half_height: Option<f64>,
+        restitution: f64,
+        is_sensor: bool,
+    ) -> PyResult<()> {
+        // Validate position and velocity are finite.
+        for (name, val) in [("x", x), ("y", y), ("dx", dx), ("dy", dy)] {
+            if !val.is_finite() {
+                return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                    "{name} must be finite, got {val}"
+                )));
+            }
+        }
+
+        // Validate restitution.
+        if restitution < 0.0 || !restitution.is_finite() {
+            return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                "restitution must be >= 0.0 and finite, got {restitution}"
+            )));
+        }
+
+        // Validate entity is alive.
+        let eid = EntityId::from_raw(entity_id);
+        if !self.tick_loop.world().is_alive(eid) {
+            return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                "entity {entity_id} is not alive -- spawn it with spawn_entity() \
+                 and call tick() before registering with physics"
+            )));
+        }
+
+        // Ensure physics is initialized.
+        let physics = self.tick_loop.physics_mut().ok_or_else(|| {
+            pyo3::exceptions::PyRuntimeError::new_err(
+                "physics not initialized -- call init_physics() first",
+            )
+        })?;
+
+        // Parse body type.
+        let parsed_body_type = match body_type {
+            "dynamic" => PhysicsBodyType::Dynamic,
+            "kinematic" => PhysicsBodyType::Kinematic,
+            "static" => PhysicsBodyType::Static,
+            other => {
+                return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                    "unknown body_type '{other}' -- expected \"dynamic\", \"kinematic\", or \"static\""
+                )));
+            }
+        };
+
+        // Build collider shape.
+        let collider = match collider_type {
+            "circle" => {
+                let radius = collider_radius.ok_or_else(|| {
+                    pyo3::exceptions::PyValueError::new_err(
+                        "collider_radius is required when collider_type is \"circle\"",
+                    )
+                })?;
+                if radius <= 0.0 || !radius.is_finite() {
+                    return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                        "collider_radius must be positive and finite, got {radius}"
+                    )));
+                }
+                ColliderShape::Circle { radius }
+            }
+            "box" => {
+                let half_width = collider_half_width.ok_or_else(|| {
+                    pyo3::exceptions::PyValueError::new_err(
+                        "collider_half_width is required when collider_type is \"box\"",
+                    )
+                })?;
+                let half_height = collider_half_height.ok_or_else(|| {
+                    pyo3::exceptions::PyValueError::new_err(
+                        "collider_half_height is required when collider_type is \"box\"",
+                    )
+                })?;
+                if half_width <= 0.0 || !half_width.is_finite() {
+                    return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                        "collider_half_width must be positive and finite, got {half_width}"
+                    )));
+                }
+                if half_height <= 0.0 || !half_height.is_finite() {
+                    return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                        "collider_half_height must be positive and finite, got {half_height}"
+                    )));
+                }
+                ColliderShape::Box {
+                    half_width,
+                    half_height,
+                }
+            }
+            other => {
+                return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                    "unknown collider_type '{other}' -- expected \"circle\" or \"box\""
+                )));
+            }
+        };
+
+        // Build physics body descriptor.
+        let body = PhysicsBody {
+            body_type: parsed_body_type,
+            collider,
+            restitution,
+            is_sensor,
+        };
+
+        let position = Position { x, y };
+        let velocity = Velocity { dx, dy };
+
+        physics.register_entity(eid, &position, &velocity, &body);
+        Ok(())
     }
 
     /// Get the total number of alive entities in the world.
