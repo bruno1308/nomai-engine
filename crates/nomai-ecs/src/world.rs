@@ -1,6 +1,7 @@
 //! The [`World`] is the top-level container for the ECS. It owns the entity
 //! allocator, the component registry, and all archetype storage.
 
+use std::cell::RefCell;
 use std::collections::HashMap;
 
 use crate::archetype::{Archetype, ArchetypeId, ComponentVtable};
@@ -327,6 +328,12 @@ pub struct World {
     archetype_index: HashMap<Vec<ComponentTypeId>, ArchetypeId>,
     /// Maps entity ID -> (archetype, row).
     pub(crate) entity_locations: HashMap<EntityId, EntityLocation>,
+    /// Cache: sorted component type set -> matching archetype IDs.
+    /// Invalidated when new archetypes are created.
+    /// Uses RefCell for interior mutability (preserves &self on query methods).
+    query_cache: RefCell<HashMap<Vec<ComponentTypeId>, Vec<ArchetypeId>>>,
+    /// Monotonic counter incremented when archetypes change.
+    archetype_generation: u64,
 }
 
 impl std::fmt::Debug for World {
@@ -334,6 +341,7 @@ impl std::fmt::Debug for World {
         f.debug_struct("World")
             .field("entity_count", &self.entity_locations.len())
             .field("archetype_count", &self.archetypes.len())
+            .field("archetype_generation", &self.archetype_generation)
             .finish()
     }
 }
@@ -353,6 +361,8 @@ impl World {
             archetypes: Vec::new(),
             archetype_index: HashMap::new(),
             entity_locations: HashMap::new(),
+            query_cache: RefCell::new(HashMap::new()),
+            archetype_generation: 0,
         };
         // Register the built-in Identity component type.
         world.register_component::<Identity>("__identity");
@@ -403,6 +413,8 @@ impl World {
         let archetype = Archetype::new(id, type_ids.to_vec(), infos, vtables);
         self.archetypes.push(archetype);
         self.archetype_index.insert(type_ids.to_vec(), id);
+        self.archetype_generation += 1;
+        self.query_cache.borrow_mut().clear();
         id
     }
 
@@ -708,15 +720,38 @@ impl World {
         self.archetypes.len()
     }
 
+    /// The archetype generation counter (incremented on new archetype creation).
+    pub fn archetype_generation(&self) -> u64 {
+        self.archetype_generation
+    }
+
     // -- query helpers (used by query.rs) -----------------------------------
 
     /// Find all archetype IDs whose component set is a superset of `required`.
+    ///
+    /// Results are cached by the sorted component type set. The cache is
+    /// automatically invalidated whenever a new archetype is created.
     pub(crate) fn matching_archetypes(&self, required: &[ComponentTypeId]) -> Vec<ArchetypeId> {
-        self.archetypes
+        // Check cache first.
+        {
+            let cache = self.query_cache.borrow();
+            if let Some(cached) = cache.get(required) {
+                return cached.clone();
+            }
+        }
+
+        // Compute and cache.
+        let result: Vec<ArchetypeId> = self
+            .archetypes
             .iter()
             .filter(|arch| required.iter().all(|req| arch.has_component(*req)))
             .map(|arch| arch.id())
-            .collect()
+            .collect();
+
+        self.query_cache
+            .borrow_mut()
+            .insert(required.to_vec(), result.clone());
+        result
     }
 
     /// Look up the `ComponentTypeId` for a Rust type.
@@ -844,8 +879,8 @@ impl World {
     ///
     /// Returns [`EcsError::UnknownComponent`] if the component name is not
     /// registered, or [`EcsError::StaleEntity`] if the entity does not exist.
-    /// Returns a deserialization error (wrapped in `UnknownComponent`) if the
-    /// JSON value does not match the component's schema.
+    /// Returns [`EcsError::ComponentDeserializationError`] if the JSON value
+    /// does not match the component's schema.
     pub fn set_component_by_name(
         &mut self,
         entity: EntityId,
@@ -1221,5 +1256,68 @@ mod tests {
         assert!(result.is_err());
         let msg = format!("{}", result.unwrap_err());
         assert!(msg.contains("position"), "error should mention component name: {msg}");
+    }
+
+    #[test]
+    fn query_cache_returns_same_results() {
+        let mut world = setup_world();
+        for i in 0..100 {
+            world.spawn_with(Pos { x: i as f32, y: 0.0 });
+        }
+
+        // First query: populates cache.
+        let count1 = world.query::<(&Pos,)>().count();
+        // Second query: hits cache.
+        let count2 = world.query::<(&Pos,)>().count();
+        assert_eq!(count1, count2);
+        assert_eq!(count1, 100);
+    }
+
+    #[test]
+    fn query_cache_invalidated_on_new_archetype() {
+        let mut world = setup_world();
+        let e = world.spawn_with(Pos { x: 0.0, y: 0.0 });
+
+        // Query with Pos only -- cache populated.
+        let count1 = world.query::<(&Pos,)>().count();
+        assert_eq!(count1, 1);
+
+        let gen_before = world.archetype_generation();
+
+        // Insert Vel -- creates new archetype, invalidates cache.
+        world.insert_component(e, Vel { dx: 1.0, dy: 0.0 }).unwrap();
+
+        let gen_after = world.archetype_generation();
+        assert!(gen_after > gen_before, "archetype generation should increment on new archetype");
+
+        // Query with Pos should still find the entity (in new archetype).
+        let count2 = world.query::<(&Pos,)>().count();
+        assert_eq!(count2, 1);
+
+        // Query with Pos+Vel should now find it.
+        let count3 = world.query::<(&Pos, &Vel)>().count();
+        assert_eq!(count3, 1);
+    }
+
+    #[test]
+    fn query_cache_not_invalidated_on_existing_archetype() {
+        let mut world = setup_world();
+        world.spawn_with(Pos { x: 1.0, y: 0.0 });
+
+        // Query to populate cache.
+        let _ = world.query::<(&Pos,)>().count();
+
+        let gen_before = world.archetype_generation();
+
+        // Spawn another entity with same archetype (Pos only) -- no new archetype.
+        world.spawn_with(Pos { x: 2.0, y: 0.0 });
+
+        let gen_after = world.archetype_generation();
+        assert_eq!(gen_before, gen_after, "generation should NOT change for existing archetype");
+
+        // Query should still be correct (cache was not invalidated, but
+        // the cache stores archetype IDs not entity counts, so it's still valid).
+        let count = world.query::<(&Pos,)>().count();
+        assert_eq!(count, 2);
     }
 }
