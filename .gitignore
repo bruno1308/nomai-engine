@@ -47,3 +47,6 @@ benchmarks/target/
 
 # Maturin build artifacts
 *.whl
+
+# Generated demo artifacts
+demo_report.json

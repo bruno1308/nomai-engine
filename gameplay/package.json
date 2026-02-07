@@ -4,6 +4,8 @@
   "private": true,
   "scripts": {
     "build": "npx asc assembly/index.ts --outFile build/gameplay.wasm --optimize --exportRuntime",
+    "build:buggy": "npx asc assembly/index_buggy.ts --outFile build/breakout_buggy.wasm --optimize --exportRuntime",
+    "build:all": "npm run build && npm run build:buggy",
     "build:debug": "npx asc assembly/index.ts --outFile build/gameplay.debug.wasm --debug --sourceMap --exportRuntime"
   },
   "devDependencies": {

@@ -159,6 +159,59 @@ class NomaiEngine:
         """Queue a component value change (applied on next tick)."""
         self._engine.set_component(entity_id, component, value)
 
+    # -- Physics -------------------------------------------------------------
+
+    def init_physics(self) -> None:
+        """Initialize the physics world with zero gravity.
+
+        Must be called before ``register_physics_entity()``. Also
+        auto-registers the ``"position"`` and ``"velocity"`` component
+        types if they are not already registered.
+        """
+        self._engine.init_physics()
+
+    def register_physics_entity(
+        self,
+        entity_id: int,
+        x: float,
+        y: float,
+        dx: float,
+        dy: float,
+        body_type: str,
+        collider_type: str,
+        *,
+        collider_radius: float | None = None,
+        collider_half_width: float | None = None,
+        collider_half_height: float | None = None,
+        restitution: float = 0.5,
+        is_sensor: bool = False,
+    ) -> None:
+        """Register a physics entity with position, velocity, and body type.
+
+        The entity must already be alive (spawn + tick first).
+
+        Args:
+            entity_id: Raw entity ID from ``entity_index()``.
+            x, y: Initial position.
+            dx, dy: Initial velocity.
+            body_type: ``"dynamic"``, ``"kinematic"``, or ``"static"``.
+            collider_type: ``"circle"`` or ``"box"``.
+            collider_radius: Required when collider_type is ``"circle"``.
+            collider_half_width: Required when collider_type is ``"box"``.
+            collider_half_height: Required when collider_type is ``"box"``.
+            restitution: Bounciness (default 0.5).
+            is_sensor: Whether this is a sensor (default False).
+        """
+        self._engine.register_physics_entity(
+            entity_id, x, y, dx, dy,
+            body_type, collider_type,
+            collider_radius,
+            collider_half_width,
+            collider_half_height,
+            restitution,
+            is_sensor,
+        )
+
     # -- WASM ----------------------------------------------------------------
 
     def load_gameplay_wasm(self, wasm_bytes: bytes) -> None:

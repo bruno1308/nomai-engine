@@ -213,11 +213,11 @@ def _ball_speed_x_bounded() -> IntentSpec:
     return IntentSpec(
         name="ball_speed_x_bounded",
         kind=IntentKind.METRIC,
-        description="Ball horizontal speed (dx) must stay within [-10, 10].",
+        description="Ball horizontal speed (dx) must stay within [-500, 500].",
         metric_entity="ball",
         metric_component="velocity",
         metric_field="dx",
-        metric_range=(-10.0, 10.0),
+        metric_range=(-500.0, 500.0),
     )
 
 
@@ -225,11 +225,11 @@ def _ball_speed_y_bounded() -> IntentSpec:
     return IntentSpec(
         name="ball_speed_y_bounded",
         kind=IntentKind.METRIC,
-        description="Ball vertical speed (dy) must stay within [-10, 10].",
+        description="Ball vertical speed (dy) must stay within [-500, 500].",
         metric_entity="ball",
         metric_component="velocity",
         metric_field="dy",
-        metric_range=(-10.0, 10.0),
+        metric_range=(-500.0, 500.0),
     )
 
 
