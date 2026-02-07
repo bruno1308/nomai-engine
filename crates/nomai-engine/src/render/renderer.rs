@@ -515,11 +515,8 @@ impl DebugRenderer {
     pub fn render(&mut self, commands: &[DrawCommand]) -> Result<(), wgpu::SurfaceError> {
         // Update camera uniform.
         let camera_matrix = self.camera.orthographic_matrix();
-        self.queue.write_buffer(
-            &self.camera_buffer,
-            0,
-            bytemuck::cast_slice(&camera_matrix),
-        );
+        self.queue
+            .write_buffer(&self.camera_buffer, 0, bytemuck::cast_slice(&camera_matrix));
 
         // Build vertex data from draw commands.
         let mut vertices: Vec<Vertex> = Vec::with_capacity(commands.len() * VERTICES_PER_QUAD);
@@ -559,11 +556,8 @@ impl DebugRenderer {
 
         // Upload vertices.
         if !vertices.is_empty() {
-            self.queue.write_buffer(
-                &self.vertex_buffer,
-                0,
-                bytemuck::cast_slice(&vertices),
-            );
+            self.queue
+                .write_buffer(&self.vertex_buffer, 0, bytemuck::cast_slice(&vertices));
         }
 
         // Get surface texture.

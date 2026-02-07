@@ -239,9 +239,7 @@ impl PyNomaiEngine {
     fn load_gameplay_wasm(&mut self, wasm_bytes: Vec<u8>) -> PyResult<()> {
         let config = WasmConfig::default();
         let module = WasmModule::from_bytes(&config, &wasm_bytes).map_err(|e| {
-            pyo3::exceptions::PyRuntimeError::new_err(format!(
-                "WASM module load failed: {e}"
-            ))
+            pyo3::exceptions::PyRuntimeError::new_err(format!("WASM module load failed: {e}"))
         })?;
         self.wasm_module = Some(module);
         tracing::info!("WASM gameplay module loaded ({} bytes)", wasm_bytes.len());
@@ -256,9 +254,7 @@ impl PyNomaiEngine {
         match &mut self.wasm_module {
             Some(module) => {
                 module.swap(&wasm_bytes).map_err(|e| {
-                    pyo3::exceptions::PyRuntimeError::new_err(format!(
-                        "WASM hot-swap failed: {e}"
-                    ))
+                    pyo3::exceptions::PyRuntimeError::new_err(format!("WASM hot-swap failed: {e}"))
                 })?;
                 tracing::info!(
                     "WASM gameplay module hot-swapped ({} bytes)",
@@ -585,11 +581,11 @@ impl PyNomaiEngine {
                     "invalid snapshot JSON: {e} -- ensure the string was produced by capture_snapshot()"
                 ))
             })?;
-        self.tick_loop.restore_from_snapshot(&snapshot).map_err(|e| {
-            pyo3::exceptions::PyRuntimeError::new_err(format!(
-                "snapshot restore failed: {e}"
-            ))
-        })
+        self.tick_loop
+            .restore_from_snapshot(&snapshot)
+            .map_err(|e| {
+                pyo3::exceptions::PyRuntimeError::new_err(format!("snapshot restore failed: {e}"))
+            })
     }
 
     /// Get the BLAKE3 hex digest of the current engine state.
@@ -620,9 +616,7 @@ impl PyNomaiEngine {
                 ))
             })?;
         let result = nomai_engine::replay::replay(&mut self.tick_loop, &log).map_err(|e| {
-            pyo3::exceptions::PyRuntimeError::new_err(format!(
-                "replay failed: {e}"
-            ))
+            pyo3::exceptions::PyRuntimeError::new_err(format!("replay failed: {e}"))
         })?;
         serde_json::to_string(&result).map_err(|e| {
             pyo3::exceptions::PyRuntimeError::new_err(format!(
@@ -644,15 +638,12 @@ impl PyNomaiEngine {
         let mut frame = InputFrame::default();
         for (key, value) in input.iter() {
             let name: String = key.extract()?;
-            let json_str: String = json_mod
-                .call_method1("dumps", (value,))?
-                .extract()?;
-            let json_val: serde_json::Value =
-                serde_json::from_str(&json_str).map_err(|e| {
-                    pyo3::exceptions::PyValueError::new_err(format!(
-                        "failed to parse input '{name}' as JSON: {e}"
-                    ))
-                })?;
+            let json_str: String = json_mod.call_method1("dumps", (value,))?.extract()?;
+            let json_val: serde_json::Value = serde_json::from_str(&json_str).map_err(|e| {
+                pyo3::exceptions::PyValueError::new_err(format!(
+                    "failed to parse input '{name}' as JSON: {e}"
+                ))
+            })?;
             frame.inputs.insert(name, json_val);
         }
         self.tick_loop.set_input(frame);
@@ -676,15 +667,12 @@ fn pydict_to_component_vec(
     let mut result = Vec::with_capacity(dict.len());
     for (key, value) in dict.iter() {
         let name: String = key.extract()?;
-        let json_str: String = json_mod
-            .call_method1("dumps", (value,))?
-            .extract()?;
-        let json_val: serde_json::Value =
-            serde_json::from_str(&json_str).map_err(|e| {
-                pyo3::exceptions::PyValueError::new_err(format!(
-                    "failed to parse component '{name}' as JSON: {e}"
-                ))
-            })?;
+        let json_str: String = json_mod.call_method1("dumps", (value,))?.extract()?;
+        let json_val: serde_json::Value = serde_json::from_str(&json_str).map_err(|e| {
+            pyo3::exceptions::PyValueError::new_err(format!(
+                "failed to parse component '{name}' as JSON: {e}"
+            ))
+        })?;
         result.push((name, json_val));
     }
     Ok(result)
@@ -696,9 +684,7 @@ fn pyobj_to_json_value(
     py: Python<'_>,
 ) -> PyResult<serde_json::Value> {
     let json_mod = py.import("json")?;
-    let json_str: String = json_mod
-        .call_method1("dumps", (value,))?
-        .extract()?;
+    let json_str: String = json_mod.call_method1("dumps", (value,))?.extract()?;
     serde_json::from_str(&json_str).map_err(|e| {
         pyo3::exceptions::PyValueError::new_err(format!(
             "failed to parse Python value as JSON: {e}"

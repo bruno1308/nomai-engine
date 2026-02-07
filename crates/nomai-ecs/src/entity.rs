@@ -167,7 +167,6 @@ impl EntityAllocator {
             free_indices: VecDeque::from(free_indices),
         }
     }
-
 }
 
 impl Default for EntityAllocator {

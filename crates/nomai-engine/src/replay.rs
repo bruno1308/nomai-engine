@@ -354,10 +354,7 @@ pub fn replay(tick_loop: &mut TickLoop, log: &ReplayLog) -> Result<ReplayResult,
         // 4a: Set input for this tick BEFORE checking the checkpoint, because
         // during recording the state hash was computed after set_input but
         // before tick execution. The hash includes the current_input field.
-        let input = input_map
-            .get(&tick)
-            .cloned()
-            .unwrap_or_default();
+        let input = input_map.get(&tick).cloned().unwrap_or_default();
         tick_loop.set_input(input);
 
         // 4b: Check checkpoint BEFORE executing the tick (checkpoints are

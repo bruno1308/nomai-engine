@@ -7,9 +7,7 @@
 mod tests {
     use nomai_ecs::identity::{EntityIdentity, Identity, PoolIdentity, SystemId};
     use nomai_ecs::world::{ComponentBundle, World};
-    use nomai_engine::physics::{
-        ColliderShape, PhysicsBody, PhysicsBodyType, Position, Velocity,
-    };
+    use nomai_engine::physics::{ColliderShape, PhysicsBody, PhysicsBodyType, Position, Velocity};
     use nomai_engine::render::{Camera2D, DebugRenderer};
 
     /// Set up a world with physics component types registered.
@@ -378,7 +376,12 @@ mod tests {
         // Verify that not all colors are the same (row variation).
         let unique_colors: std::collections::HashSet<String> = commands
             .iter()
-            .map(|cmd| format!("{:.2},{:.2},{:.2}", cmd.color[0], cmd.color[1], cmd.color[2]))
+            .map(|cmd| {
+                format!(
+                    "{:.2},{:.2},{:.2}",
+                    cmd.color[0], cmd.color[1], cmd.color[2]
+                )
+            })
             .collect();
         assert!(
             unique_colors.len() > 1,
@@ -596,8 +599,14 @@ mod tests {
         // World origin (0, 0) is at camera center -> clip (0, 0).
         let clip_x = mat[0] * 0.0 + mat[12];
         let clip_y = mat[5] * 0.0 + mat[13];
-        assert!(clip_x.abs() < 1e-5, "origin X should be clip 0, got {clip_x}");
-        assert!(clip_y.abs() < 1e-5, "origin Y should be clip 0, got {clip_y}");
+        assert!(
+            clip_x.abs() < 1e-5,
+            "origin X should be clip 0, got {clip_x}"
+        );
+        assert!(
+            clip_y.abs() < 1e-5,
+            "origin Y should be clip 0, got {clip_y}"
+        );
 
         // World (50, 50) is at right-top edge -> clip (1, 1).
         let clip_x_edge = mat[0] * 50.0 + mat[12];
@@ -696,7 +705,7 @@ mod tests {
             },
             Some(Identity::Pooled(PoolIdentity {
                 pool_type: "obstacle".to_owned(), // doesn't match brick/destructible
-                variant: "brick".to_owned(),       // but variant says brick
+                variant: "brick".to_owned(),      // but variant says brick
             })),
         );
 

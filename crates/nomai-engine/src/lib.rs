@@ -70,7 +70,6 @@ pub mod prelude {
     // Manifest types for convenient access.
     pub use nomai_manifest::journal::{ChangeJournal, ComponentChange};
     pub use nomai_manifest::manifest::{
-        Aggregates, CausalChain, CausalStep, EntityEntry, GameEvent, ManifestPipeline,
-        TickManifest,
+        Aggregates, CausalChain, CausalStep, EntityEntry, GameEvent, ManifestPipeline, TickManifest,
     };
 }

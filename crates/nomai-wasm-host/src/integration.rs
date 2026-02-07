@@ -85,12 +85,7 @@ pub fn run_wasm_tick(
     }
 
     // 9. Finalize and return manifest.
-    let tick_manifest = manifest.end_tick(
-        tick,
-        sim_time,
-        vec!["wasm_gameplay".to_owned()],
-        world,
-    );
+    let tick_manifest = manifest.end_tick(tick, sim_time, vec!["wasm_gameplay".to_owned()], world);
 
     Ok((tick_manifest, cmd_count))
 }

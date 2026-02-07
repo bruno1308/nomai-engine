@@ -244,7 +244,8 @@ fn replay_detects_divergence_when_systems_differ() {
     // Use the double-increment counter system instead.
     replay_loop.add_system("counter", counter_system_double);
 
-    let result = replay(&mut replay_loop, &log).expect("replay should succeed (even with divergence)");
+    let result =
+        replay(&mut replay_loop, &log).expect("replay should succeed (even with divergence)");
 
     assert!(
         !result.completed,
@@ -297,24 +298,15 @@ fn replay_log_serializable_to_json() {
         restored.initial_snapshot.tick_counter,
         log.initial_snapshot.tick_counter
     );
-    assert_eq!(
-        restored.initial_snapshot.hash,
-        log.initial_snapshot.hash
-    );
+    assert_eq!(restored.initial_snapshot.hash, log.initial_snapshot.hash);
     assert_eq!(restored.entries.len(), log.entries.len());
     assert_eq!(restored.total_ticks, log.total_ticks);
-    assert_eq!(
-        restored.gameplay_module_hash,
-        log.gameplay_module_hash
-    );
+    assert_eq!(restored.gameplay_module_hash, log.gameplay_module_hash);
 
     // Verify entries match structurally.
     for (orig, rest) in log.entries.iter().zip(restored.entries.iter()) {
         match (orig, rest) {
-            (
-                ReplayEntry::Input { tick: t1, .. },
-                ReplayEntry::Input { tick: t2, .. },
-            ) => {
+            (ReplayEntry::Input { tick: t1, .. }, ReplayEntry::Input { tick: t2, .. }) => {
                 assert_eq!(t1, t2, "input entry tick mismatch");
             }
             (
@@ -363,9 +355,7 @@ fn checkpoint_interval_respected() {
     }
 
     // We should have checkpoints at ticks 0, 7, 14, 21, 28, 35, 42, 49.
-    let expected_ticks: Vec<u64> = (0..50)
-        .filter(|t| t % checkpoint_interval == 0)
-        .collect();
+    let expected_ticks: Vec<u64> = (0..50).filter(|t| t % checkpoint_interval == 0).collect();
     assert_eq!(
         checkpoint_ticks, expected_ticks,
         "checkpoint ticks do not match expected interval pattern"
@@ -421,9 +411,7 @@ fn replay_rejects_duplicate_input_entries() {
     let snapshot = tick_loop.capture_snapshot();
 
     let mut input = InputFrame::default();
-    input
-        .inputs
-        .insert("key".to_string(), serde_json::json!(1));
+    input.inputs.insert("key".to_string(), serde_json::json!(1));
 
     // Construct a log with duplicate Input entries at the same tick.
     let log = ReplayLog {
@@ -476,8 +464,8 @@ fn replay_rejects_duplicate_checkpoint_entries() {
     };
 
     let mut replay_loop = build_tick_loop_with_entities();
-    let err = replay(&mut replay_loop, &log)
-        .expect_err("should reject duplicate Checkpoint entries");
+    let err =
+        replay(&mut replay_loop, &log).expect_err("should reject duplicate Checkpoint entries");
     let msg = err.to_string();
     assert!(
         msg.contains("duplicate Checkpoint entry at tick 0"),

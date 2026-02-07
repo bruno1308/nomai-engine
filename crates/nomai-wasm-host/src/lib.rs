@@ -305,7 +305,10 @@ mod tests {
 
         // Original module should still work
         let fuel = module.call_tick().unwrap();
-        assert!(fuel > 0, "original module should still work after failed swap");
+        assert!(
+            fuel > 0,
+            "original module should still work after failed swap"
+        );
     }
 
     #[test]
@@ -345,7 +348,8 @@ mod tests {
         // Host state should be preserved (it lives in the Store, not the Instance)
         assert_eq!(module.host_state().tick, 42, "tick should be preserved");
         assert_eq!(
-            module.host_state().entity_count, 99,
+            module.host_state().entity_count,
+            99,
             "entity_count should be preserved"
         );
     }
@@ -381,7 +385,10 @@ mod hardening_tests {
 
         let err = result.unwrap_err();
         match err {
-            WasmError::InvalidImport { ref module, ref name } => {
+            WasmError::InvalidImport {
+                ref module,
+                ref name,
+            } => {
                 assert_eq!(module, "unknown_module");
                 assert_eq!(name, "unknown_func");
             }
@@ -545,7 +552,10 @@ mod hardening_tests {
 
         // Original module should still work after failed swap.
         let fuel = module.call_tick().unwrap();
-        assert!(fuel > 0, "original module should still work after failed swap");
+        assert!(
+            fuel > 0,
+            "original module should still work after failed swap"
+        );
     }
 
     #[test]
@@ -1134,14 +1144,9 @@ mod integration_tests {
         let bytes = fixture_bytes("causality_test.wat");
         let mut module = WasmModule::from_bytes(&config, &bytes).unwrap();
 
-        let (tick_manifest, _) = crate::integration::run_wasm_tick(
-            &mut module,
-            &mut world,
-            &mut manifest,
-            1,
-            0.016,
-        )
-        .unwrap();
+        let (tick_manifest, _) =
+            crate::integration::run_wasm_tick(&mut module, &mut world, &mut manifest, 1, 0.016)
+                .unwrap();
 
         assert!(
             tick_manifest
@@ -1178,14 +1183,9 @@ mod integration_tests {
             tick: 1,
         });
 
-        let (tick_manifest, _) = crate::integration::run_wasm_tick(
-            &mut module,
-            &mut world,
-            &mut manifest,
-            1,
-            0.016,
-        )
-        .unwrap();
+        let (tick_manifest, _) =
+            crate::integration::run_wasm_tick(&mut module, &mut world, &mut manifest, 1, 0.016)
+                .unwrap();
 
         assert!(
             !tick_manifest.events.is_empty(),
@@ -1235,11 +1235,7 @@ mod b8_integration_tests {
         let mut world = World::new();
         world.register_component::<Position>("position");
         let entity = world.spawn_with(Position { x: 0.0, y: 0.0 });
-        assert_eq!(
-            entity.to_raw(),
-            0,
-            "first entity should have raw id 0"
-        );
+        assert_eq!(entity.to_raw(), 0, "first entity should have raw id 0");
 
         let mut manifest = ManifestPipeline::new();
         let config = WasmConfig::default();
@@ -1303,10 +1299,7 @@ mod b8_integration_tests {
             let x = new_value["x"]
                 .as_f64()
                 .expect("new_value.x should be a number");
-            assert!(
-                x > 0.0,
-                "correct movement: x should be positive, got {x}"
-            );
+            assert!(x > 0.0, "correct movement: x should be positive, got {x}");
         }
     }
 
@@ -1343,10 +1336,7 @@ mod b8_integration_tests {
             let x = new_value["x"]
                 .as_f64()
                 .expect("new_value.x should be a number");
-            assert!(
-                x < 0.0,
-                "buggy movement: x should be negative, got {x}"
-            );
+            assert!(x < 0.0, "buggy movement: x should be negative, got {x}");
         }
     }
 
@@ -1456,18 +1446,12 @@ mod b8_integration_tests {
             change.get("changed_by").is_some(),
             "change must have 'changed_by'"
         );
-        assert!(
-            change.get("reason").is_some(),
-            "change must have 'reason'"
-        );
+        assert!(change.get("reason").is_some(), "change must have 'reason'");
         assert!(
             change.get("command_index").is_some(),
             "change must have 'command_index'"
         );
-        assert!(
-            change.get("tick").is_some(),
-            "change must have 'tick'"
-        );
+        assert!(change.get("tick").is_some(), "change must have 'tick'");
 
         // Verify the reason is in the expected serde enum format.
         let reason = &change["reason"];

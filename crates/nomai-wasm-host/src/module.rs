@@ -342,8 +342,8 @@ impl WasmModule {
 
         // Compile new module using the existing engine from the store.
         let engine = self.store.engine().clone();
-        let module = Module::new(&engine, new_bytes)
-            .map_err(|e| WasmError::CompileError(format!("{e}")))?;
+        let module =
+            Module::new(&engine, new_bytes).map_err(|e| WasmError::CompileError(format!("{e}")))?;
 
         // Validate tick export exists before instantiation.
         let has_tick = module.exports().any(|export| export.name() == "tick");
@@ -372,9 +372,9 @@ impl WasmModule {
             .map_err(|e| WasmError::Runtime(format!("failed to register host API: {e}")))?;
 
         // Instantiate new module using existing store (preserves HostState).
-        let instance = linker.instantiate(&mut self.store, &module).map_err(|e| {
-            WasmError::Runtime(format!("{e}"))
-        })?;
+        let instance = linker
+            .instantiate(&mut self.store, &module)
+            .map_err(|e| WasmError::Runtime(format!("{e}")))?;
 
         // Replace instance.
         self.instance = instance;
