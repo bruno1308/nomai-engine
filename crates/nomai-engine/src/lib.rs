@@ -27,6 +27,7 @@
 #![deny(unsafe_code)]
 
 pub mod physics;
+pub mod render;
 pub mod replay;
 pub mod snapshot;
 pub mod tick;
