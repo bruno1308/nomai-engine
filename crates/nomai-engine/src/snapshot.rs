@@ -65,8 +65,8 @@
 //! - **Systems** (closures/fn pointers) -- the caller must re-register
 //!   systems on a fresh `TickLoop` if needed. When restoring on the *same*
 //!   `TickLoop` instance, registered systems are retained.
-//! - **Physics world** (`rapier2d` state) -- not serializable. The caller
-//!   must reconstruct physics from ECS component data after restore (Task 8).
+//! - **Physics world** (`rapier2d` state) -- not serializable. Reconstructed
+//!   automatically from ECS component data during restore.
 //! - **WASM module** (`wasmtime` state) -- not serializable. The caller
 //!   must re-attach the WASM module after restore.
 //! - **Manifest pipeline** -- reset to a fresh `ManifestPipeline::new()`
@@ -191,9 +191,11 @@ impl TickLoop {
     /// - The manifest pipeline (to a fresh `ManifestPipeline::new()`)
     /// - The command buffer (cleared)
     ///
+    /// This also handles:
+    /// - Physics world (automatically reconstructed from ECS state)
+    ///
     /// This does NOT touch:
     /// - Registered systems (retained on the same `TickLoop` instance)
-    /// - Physics world (caller must reconstruct from ECS state)
     /// - WASM module (caller must re-attach)
     /// - Diagnostics (reset implicitly on next tick)
     ///
@@ -253,6 +255,11 @@ impl TickLoop {
         // Clear the command buffer to prevent stale commands from leaking
         // into the next tick.
         self.clear_command_buffer();
+
+        // Reconstruct the rapier2d physics world from restored ECS state.
+        // rapier types are not serializable, so we rebuild from Position,
+        // Velocity, and PhysicsBody components that were restored above.
+        self.reconstruct_physics();
 
         Ok(())
     }

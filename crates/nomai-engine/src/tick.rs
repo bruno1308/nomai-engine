@@ -390,7 +390,8 @@ impl TickLoop {
             // WASM modules read entity count, tick number, and sim time
             // from the host state. A full component snapshot can be
             // provided externally via wasm_module_mut() before calling tick().
-            wasm.host_state_mut().begin_tick(self.tick_counter, sim_time);
+            wasm.host_state_mut()
+                .begin_tick(self.tick_counter, sim_time);
             wasm.host_state_mut().entity_count = self.world.entity_count();
 
             // Call WASM tick (trap-safe: log and skip on failure).
@@ -450,8 +451,7 @@ impl TickLoop {
             .process_commands(&applied, self.tick_counter, &self.world);
 
         // Phase 7: Finalize manifest for this tick (before advancing counter).
-        let mut system_names: Vec<String> =
-            self.systems.iter().map(|s| s.name.clone()).collect();
+        let mut system_names: Vec<String> = self.systems.iter().map(|s| s.name.clone()).collect();
         if self.physics.is_some() {
             system_names.push(crate::physics::PHYSICS_SYSTEM_NAME.to_owned());
         }
@@ -634,10 +634,7 @@ impl TickLoop {
     /// Returns [`WasmError`](nomai_wasm_host::WasmError) if the new bytes
     /// fail compilation, are missing the `tick()` export, or have invalid
     /// imports.
-    pub fn swap_wasm_module(
-        &mut self,
-        bytes: &[u8],
-    ) -> Result<(), nomai_wasm_host::WasmError> {
+    pub fn swap_wasm_module(&mut self, bytes: &[u8]) -> Result<(), nomai_wasm_host::WasmError> {
         match self.wasm_module {
             Some(ref mut module) => module.swap(bytes),
             None => Err(nomai_wasm_host::WasmError::Runtime(
@@ -680,6 +677,18 @@ impl TickLoop {
     /// into the next tick. Public within the crate only.
     pub(crate) fn clear_command_buffer(&mut self) {
         self.command_buffer = CommandBuffer::new();
+    }
+
+    /// Reconstruct the physics world from current ECS state.
+    ///
+    /// If a physics world is attached, clears all rapier state and
+    /// re-registers entities from their ECS Position, Velocity, and
+    /// PhysicsBody components. Used during snapshot restore since rapier2d
+    /// types are not serializable. Public within the crate only.
+    pub(crate) fn reconstruct_physics(&mut self) {
+        if let Some(ref mut physics) = self.physics {
+            physics.reconstruct_from_world(&self.world);
+        }
     }
 
     /// Set the fixed time step directly (used during snapshot restore).

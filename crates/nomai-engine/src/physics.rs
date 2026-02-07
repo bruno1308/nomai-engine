@@ -338,6 +338,50 @@ impl PhysicsWorld {
         results
     }
 
+    /// Clear all rapier state and rebuild from ECS component data.
+    ///
+    /// This is used after snapshot restore, since rapier2d types are not
+    /// serializable. The method:
+    ///
+    /// 1. Clears **all** rapier state: rigid bodies, colliders, broadphase,
+    ///    narrowphase, joints, CCD solver, pipeline, and entity-handle maps.
+    /// 2. Queries the [`World`](nomai_ecs::world::World) for every entity
+    ///    that has both [`Position`] and [`PhysicsBody`] components.
+    /// 3. Re-registers each entity via [`register_entity`](Self::register_entity),
+    ///    using the entity's [`Velocity`] if present (defaulting to zero).
+    ///
+    /// After this call, the rapier world matches the ECS world exactly.
+    /// Gravity is preserved from the original `PhysicsWorld` configuration.
+    pub fn reconstruct_from_world(&mut self, world: &nomai_ecs::world::World) {
+        // 1. Clear all rapier state.
+        self.rigid_body_set = RigidBodySet::new();
+        self.collider_set = ColliderSet::new();
+        self.entity_to_body.clear();
+        self.body_to_entity.clear();
+        self.collider_to_entity.clear();
+        self.island_manager = IslandManager::new();
+        self.broad_phase = DefaultBroadPhase::new();
+        self.narrow_phase = NarrowPhase::new();
+        self.impulse_joint_set = ImpulseJointSet::new();
+        self.multibody_joint_set = MultibodyJointSet::new();
+        self.ccd_solver = CCDSolver::new();
+        self.pipeline = PhysicsPipeline::new();
+
+        // 2. Re-register all entities that have Position + PhysicsBody.
+        let entities: Vec<(EntityId, Position, PhysicsBody)> = world
+            .query::<(&Position, &PhysicsBody)>()
+            .map(|(entity, (pos, body))| (entity, pos.clone(), body.clone()))
+            .collect();
+
+        for (entity, pos, body) in entities {
+            let vel = world
+                .get_component::<Velocity>(entity)
+                .cloned()
+                .unwrap_or(Velocity { dx: 0.0, dy: 0.0 });
+            self.register_entity(entity, &pos, &vel, &body);
+        }
+    }
+
     /// Check if an entity is registered in the physics world.
     pub fn has_entity(&self, entity_id: EntityId) -> bool {
         self.entity_to_body.contains_key(&entity_id.to_raw())
@@ -687,10 +731,7 @@ mod tests {
         pw.register_entity(
             ball,
             &Position { x: 0.0, y: 0.0 },
-            &Velocity {
-                dx: 100.0,
-                dy: 0.0,
-            },
+            &Velocity { dx: 100.0, dy: 0.0 },
             &PhysicsBody {
                 body_type: PhysicsBodyType::Dynamic,
                 collider: ColliderShape::Circle { radius: 0.5 },
@@ -890,10 +931,7 @@ mod tests {
             pw.register_entity(
                 EntityId::new(0, 0),
                 &Position { x: 0.0, y: 0.0 },
-                &Velocity {
-                    dx: 50.0,
-                    dy: 0.0,
-                },
+                &Velocity { dx: 50.0, dy: 0.0 },
                 &PhysicsBody {
                     body_type: PhysicsBodyType::Dynamic,
                     collider: ColliderShape::Circle { radius: 0.5 },
@@ -1010,10 +1048,7 @@ mod tests {
         pw.register_entity(
             EntityId::new(0, 0),
             &Position { x: 0.0, y: 0.0 },
-            &Velocity {
-                dx: 100.0,
-                dy: 0.0,
-            },
+            &Velocity { dx: 100.0, dy: 0.0 },
             &PhysicsBody {
                 body_type: PhysicsBodyType::Dynamic,
                 collider: ColliderShape::Circle { radius: 0.5 },
