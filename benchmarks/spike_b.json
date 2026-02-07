@@ -1,16 +1,26 @@
 {
   "spike": "B",
-  "description": "WASM + Verification feasibility spike -- host call overhead benchmark",
+  "description": "WASM Gameplay + Verification feasibility spike",
   "date": "2026-02-07",
   "decision": "PASS",
-  "task": "B9",
-  "commit": "pending",
+  "commits": {
+    "B1": "7e963c0",
+    "B2": "e117b2e",
+    "B3": "0f6f4b8",
+    "B4": "b36775d",
+    "B5": "b36775d",
+    "B6": "24f7ff1",
+    "B7": "0b2bb3d",
+    "B8": "4eacd43",
+    "B9": "658efaf"
+  },
   "environment": {
     "platform": "win32",
     "profile": "release (bench)",
     "criterion_version": "0.5",
     "wasmtime_version": "27.0.0",
     "rust_toolchain": "1.83.0 stable",
+    "python_version": "3.12.8",
     "samples_per_benchmark": 100
   },
   "benchmarks": {
@@ -19,100 +29,104 @@
       "median_us": 8.96,
       "low_us": 8.81,
       "high_us": 9.12,
-      "host_call_breakdown": "25 reads (get_entity_count + tick_number) + 25 writes (set_component)",
-      "budget_us": 1000,
+      "acceptance_us": 1000,
+      "kill_us": 1000,
       "budget_pct_used": 0.90
     },
     "native_equivalent_50_ops": {
-      "description": "Same 50 operations (25 reads + 25 writes) in pure Rust -- comparison baseline",
+      "description": "Same 50 operations in pure Rust — comparison baseline",
       "median_us": 4.16,
       "low_us": 4.11,
       "high_us": 4.21
     },
-    "wasm_noop_tick": {
-      "description": "Empty WASM tick() call -- measures raw Wasmtime call/return overhead",
-      "median_ns": 154.54,
-      "low_ns": 152.83,
-      "high_ns": 156.26
-    },
-    "wasm_hot_swap": {
-      "description": "Two module swaps per iteration (v1->v2, v2->v1) -- per-swap is half",
-      "median_ms_per_pair": 1.12,
-      "low_ms_per_pair": 1.11,
-      "high_ms_per_pair": 1.14,
-      "estimated_per_swap_us": 560
-    },
-    "wasm_50_calls_with_snapshot": {
-      "description": "50 host calls with 100-entity world snapshot populated in host state",
-      "median_us": 38.34,
-      "low_us": 37.63,
-      "high_us": 39.06,
-      "note": "Snapshot clone dominates -- real game loop will reuse snapshot, closer to bare 50-call bench"
-    }
-  },
-  "derived_metrics": {
     "wasm_vs_native_ratio": {
       "value": 2.15,
-      "calculation": "8.96 / 4.16",
       "target_max": 5.0,
       "kill_threshold": 10.0
     },
-    "per_host_call_overhead_us": {
-      "value": 0.18,
-      "calculation": "8.96 / 50",
-      "note": "Average overhead per individual host call including WASM guest computation"
+    "wasm_noop_tick": {
+      "description": "Empty WASM tick() — raw Wasmtime call/return overhead",
+      "median_ns": 154.54
     },
-    "wasm_boundary_overhead_us": {
-      "value": 0.155,
-      "calculation": "noop_tick (154.5ns) = pure boundary cost with fuel metering"
+    "wasm_hot_swap": {
+      "description": "Per-swap cost for module replacement at tick boundary",
+      "estimated_per_swap_us": 560,
+      "target_ms": 100
+    },
+    "wasm_50_calls_with_snapshot": {
+      "description": "50 host calls with 100-entity world snapshot in host state",
+      "median_us": 38.34
     }
   },
   "acceptance_criteria": {
-    "wasm_50_host_calls_under_1ms": {
+    "wasm_overhead_under_1ms": {
+      "description": "50 WASM host calls must complete in <1ms",
       "target_us": 1000,
       "actual_us": 8.96,
       "margin_factor": 111.6,
       "result": "PASS"
     },
-    "wasm_vs_native_under_5x": {
-      "target_ratio": 5.0,
-      "actual_ratio": 2.15,
+    "causality_unbroken": {
+      "description": "Causal chains trace through WASM boundary: SystemId::WASM_GAMEPLAY(100) + CausalReason::GameRule",
+      "evidence": "B5 integration tests verify causal_chain_traces_through_wasm_boundary, manifest_records_systems_executed; B8 tests verify correct_and_buggy_have_different_causality",
       "result": "PASS"
     },
-    "hot_swap_under_100ms": {
-      "target_ms": 100,
-      "actual_us": 560,
-      "actual_ms": 0.56,
+    "verification_detects_bugs": {
+      "description": "Python verification engine detects behavioral bugs from manifest alone, without rendering",
+      "evidence": "B8 Python tests: correct gameplay PASSES verification, buggy gameplay FAILS with diagnosis including causal chain evidence",
       "result": "PASS"
     },
-    "kill_50_host_calls_over_1ms": {
+    "all_tests_pass": {
+      "description": "All Rust and Python tests pass with zero clippy warnings",
+      "result": "PASS"
+    }
+  },
+  "kill_criteria": {
+    "wasm_50_calls_over_1ms": {
       "kill_threshold_us": 1000,
       "actual_us": 8.96,
       "result": "CLEAR"
     },
-    "kill_wasm_vs_native_over_10x": {
+    "wasm_vs_native_over_10x": {
       "kill_threshold_ratio": 10.0,
       "actual_ratio": 2.15,
       "result": "CLEAR"
     },
-    "kill_hot_swap_over_500ms": {
+    "hot_swap_over_500ms": {
       "kill_threshold_ms": 500,
       "actual_ms": 0.56,
       "result": "CLEAR"
     }
   },
   "test_counts": {
-    "wasm_host_tests": 32,
-    "ignored": 1,
-    "all_passing": true
+    "rust_total": 164,
+    "rust_breakdown": {
+      "nomai_ecs": 73,
+      "nomai_engine": 21,
+      "nomai_manifest": 32,
+      "nomai_wasm_host": 31,
+      "doc_tests": 5,
+      "ignored": 4
+    },
+    "python_total": 125,
+    "python_breakdown": {
+      "test_intents": 20,
+      "test_manifest": 25,
+      "test_verify": 66,
+      "test_integration_b8": 14
+    },
+    "combined_total": 289,
+    "all_passing": true,
+    "clippy_warnings": 0
   },
+  "tasks_completed": ["B1", "B2", "B3", "B4", "B5", "B6", "B7", "B8", "B9"],
   "notes": [
-    "All Spike B WASM overhead metrics are well within budget.",
-    "50 host calls at 8.96us is 111x under the 1ms kill criterion.",
-    "WASM vs native ratio of 2.15x is well under the 5x target and 10x kill threshold.",
-    "Hot-swap at ~560us per swap is negligible relative to the 100ms target.",
-    "The with-snapshot benchmark (38.3us) shows that even with snapshot setup overhead, the total is still 26x under budget.",
-    "Noop tick overhead (155ns) confirms Wasmtime's call boundary is not a bottleneck.",
-    "Remaining Spike B tasks (B6-B8 verification, intent specs) are not yet benchmarked here -- this covers only the WASM overhead dimension."
+    "All four gate criteria PASS. Spike B is a GO for Phase 1.",
+    "WASM overhead is 111x under the 1ms kill criterion — Wasmtime 27 is exceptionally efficient.",
+    "WASM vs native ratio of 2.15x confirms the sandbox is practical for gameplay logic.",
+    "Causality is fully preserved across the WASM boundary — SystemId::WASM_GAMEPLAY(100) + CausalReason::GameRule traces appear in manifests.",
+    "Python verification engine successfully detects behavioral bugs from manifest data alone, validating the core thesis: structured semantic access to game state enables AI self-verification.",
+    "Hot-swap at ~560us per swap enables rapid iteration during AI development loops.",
+    "Combined test suite: 289 tests (164 Rust + 125 Python), all passing, zero clippy warnings."
   ]
 }
