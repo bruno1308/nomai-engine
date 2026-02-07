@@ -398,7 +398,7 @@ fn headless_determinism() {
 #[test]
 fn run_windowed_exists_with_renderer_feature() {
     // Verify the function signature exists by taking a function pointer.
-    let _fn_ptr: fn(TickLoop, &str, u32, u32) -> Result<(), anyhow::Error> =
+    let _fn_ptr: fn(TickLoop, &str, u32, u32) -> Result<TickLoop, anyhow::Error> =
         nomai_engine::render::run_windowed;
 }
 

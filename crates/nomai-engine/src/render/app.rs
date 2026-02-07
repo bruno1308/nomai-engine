@@ -42,7 +42,7 @@ pub fn run_windowed(
     window_title: &str,
     width: u32,
     height: u32,
-) -> Result<(), anyhow::Error> {
+) -> Result<TickLoop, anyhow::Error> {
     let event_loop = EventLoop::new()?;
     event_loop.set_control_flow(winit::event_loop::ControlFlow::Poll);
 
@@ -64,7 +64,10 @@ pub fn run_windowed(
         ));
     }
 
-    Ok(())
+    // Return the tick loop so the caller retains access to manifests.
+    app.take_tick_loop().ok_or_else(|| {
+        anyhow::anyhow!("tick loop lost during windowed run -- this is an internal bug")
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -100,6 +103,19 @@ struct App {
     /// Set to `true` if initialization fails (window or renderer), so
     /// `run_windowed` can return an error after the event loop exits.
     init_failed: bool,
+}
+
+impl App {
+    /// Extract the tick loop after the event loop exits, so the caller
+    /// retains access to manifests and world state.
+    fn take_tick_loop(&mut self) -> Option<TickLoop> {
+        let state = std::mem::replace(&mut self.state, AppState::Transitioning);
+        match state {
+            AppState::Running { tick_loop, .. } => Some(tick_loop),
+            AppState::Pending { tick_loop, .. } => Some(tick_loop),
+            AppState::Transitioning => None,
+        }
+    }
 }
 
 impl ApplicationHandler for App {

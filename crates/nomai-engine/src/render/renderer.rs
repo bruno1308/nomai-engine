@@ -1,32 +1,30 @@
-//! Debug 2D renderer using wgpu.
+//! Game-agnostic 2D renderer using wgpu.
 //!
-//! Reads ECS state and draws entities as colored rectangles/circles. This
-//! renderer is intentionally simple -- it exists for human confirmation of
-//! AI-generated game state, not as a production rendering pipeline.
+//! Renders ANY entity that has spatial data (position + size) as colored
+//! rectangles. Works with both native physics components (`Position` +
+//! `PhysicsBody`) and dynamic JSON components (`"position"` + `"size"`).
 //!
 //! # Architecture
 //!
 //! The renderer does NOT own the event loop -- the tick loop drives it.
 //! Each frame:
 //!
-//! 1. [`DebugRenderer::extract_draw_commands`] queries the ECS world for
-//!    entities with [`Position`](crate::physics::Position) and
-//!    [`PhysicsBody`](crate::physics::PhysicsBody) components, mapping
-//!    entity type/role to color.
+//! 1. [`DebugRenderer::extract_draw_commands`] scans ALL entities for spatial
+//!    data (native physics OR dynamic JSON components), maps identity to color.
 //! 2. [`DebugRenderer::render`] builds a vertex buffer from draw commands
 //!    and renders a frame.
 //!
-//! # Color Mapping (MVP)
+//! # Color Mapping
 //!
-//! | Entity Role | Color | Size |
-//! |-------------|-------|------|
-//! | Paddle | Blue (#4488FF) | 80x15 |
-//! | Ball | White (#FFFFFF) | 10x10 |
-//! | Brick | Varies by row | 60x20 |
-//! | Wall | Gray (#888888) | Edge boundaries |
+//! Colors are assigned automatically based on entity identity:
+//! - Each unique role/type name gets a consistent color from a palette
+//! - Entities with a "type" component (e.g., `tile_type`) get per-type colors
+//! - Entities without identity get a default magenta color
 
+use std::collections::HashSet;
 use std::sync::Arc;
 
+use nomai_ecs::entity::EntityId;
 use nomai_ecs::identity::Identity;
 use nomai_ecs::world::World;
 use wgpu::util::DeviceExt;
@@ -155,90 +153,85 @@ pub struct DrawCommand {
 }
 
 // ---------------------------------------------------------------------------
-// Color constants for entity types
+// Color palette -- game-agnostic, visually distinct colors
 // ---------------------------------------------------------------------------
 
-/// Blue color for paddle entities: #4488FF.
-const COLOR_PADDLE: [f32; 4] = [0.267, 0.533, 1.0, 1.0];
-
-/// White color for ball entities: #FFFFFF.
-const COLOR_BALL: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
-
-/// Gray color for wall entities: #888888.
-const COLOR_WALL: [f32; 4] = [0.533, 0.533, 0.533, 1.0];
-
-/// Default color for unknown entity types.
-const COLOR_DEFAULT: [f32; 4] = [0.8, 0.2, 0.8, 1.0];
-
-/// Brick row colors -- cycles through these based on entity Y position.
-const BRICK_COLORS: &[[f32; 4]] = &[
-    [1.0, 0.2, 0.2, 1.0], // Red
-    [1.0, 0.6, 0.2, 1.0], // Orange
-    [1.0, 1.0, 0.2, 1.0], // Yellow
-    [0.2, 1.0, 0.2, 1.0], // Green
-    [0.2, 0.6, 1.0, 1.0], // Blue
-    [0.6, 0.2, 1.0, 1.0], // Purple
+/// A palette of visually distinct, saturated colors for entity rendering.
+/// Colors are assigned by hashing the entity's identity/type information.
+const COLOR_PALETTE: &[[f32; 4]] = &[
+    [0.267, 0.533, 1.0, 1.0],   // Blue
+    [1.0, 0.2, 0.2, 1.0],       // Red
+    [0.2, 1.0, 0.2, 1.0],       // Green
+    [1.0, 1.0, 0.2, 1.0],       // Yellow
+    [1.0, 0.6, 0.2, 1.0],       // Orange
+    [0.6, 0.2, 1.0, 1.0],       // Purple
+    [0.2, 1.0, 1.0, 1.0],       // Cyan
+    [1.0, 0.4, 0.7, 1.0],       // Pink
+    [1.0, 1.0, 1.0, 1.0],       // White
+    [0.533, 0.533, 0.533, 1.0], // Gray
+    [0.7, 0.5, 0.2, 1.0],       // Brown
+    [0.5, 1.0, 0.5, 1.0],       // Light green
 ];
 
+/// Default color for entities without any distinguishing identity.
+const COLOR_DEFAULT: [f32; 4] = [0.8, 0.2, 0.8, 1.0];
+
 // ---------------------------------------------------------------------------
-// Entity color mapping
+// Entity color mapping -- game-agnostic
 // ---------------------------------------------------------------------------
 
-/// Determine the color for an entity based on its identity role.
+/// Simple string hash for deterministic palette selection.
+fn hash_str(s: &str) -> usize {
+    let mut h: usize = 5381;
+    for b in s.bytes() {
+        h = h.wrapping_mul(33).wrapping_add(b as usize);
+    }
+    h
+}
+
+/// Determine the color for an entity based on its identity and optional
+/// type-distinguishing info from dynamic components.
 ///
-/// Uses the identity component to determine what kind of entity this is,
-/// then maps to the appropriate color. For bricks, the color varies by
-/// the entity's Y position to create visual row distinction.
-fn color_for_entity(identity: Option<&Identity>, y: f32) -> [f32; 4] {
+/// The color is chosen by hashing the entity's identity role/type name
+/// (and any `type_id` from a dynamic "type" component) into the palette.
+/// This is fully game-agnostic: no hard-coded game entity names.
+fn color_for_entity(
+    identity: Option<&Identity>,
+    type_component_value: Option<&serde_json::Value>,
+) -> [f32; 4] {
     let Some(identity) = identity else {
         return COLOR_DEFAULT;
     };
 
-    // Check role for semantic entities.
-    if let Some(role) = identity.role() {
-        let role_lower = role.to_lowercase();
-        if role_lower.contains("paddle") {
-            return COLOR_PADDLE;
-        }
-        if role_lower.contains("ball") {
-            return COLOR_BALL;
-        }
-        if role_lower.contains("wall") {
-            return COLOR_WALL;
-        }
-        if role_lower.contains("brick") {
-            // Vary color by Y position (row index).
-            let row_idx = ((y / 25.0).abs() as usize) % BRICK_COLORS.len();
-            return BRICK_COLORS[row_idx];
+    // Build a hash key from identity.
+    let role = identity.role().unwrap_or("");
+    let type_name = identity.type_name();
+
+    // If there's a type-distinguishing component (like tile_type), use its
+    // content to differentiate entities with the same role.
+    if let Some(type_val) = type_component_value {
+        // Try "type_id" field first (integer), then "name" field (string).
+        let distinguisher = type_val
+            .get("type_id")
+            .and_then(|v| v.as_u64())
+            .map(|id| id.to_string())
+            .or_else(|| {
+                type_val
+                    .get("name")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_owned())
+            });
+        if let Some(d) = distinguisher {
+            let key = format!("{role}:{type_name}:{d}");
+            let idx = hash_str(&key) % COLOR_PALETTE.len();
+            return COLOR_PALETTE[idx];
         }
     }
 
-    // Fallback: check entity_type (semantic) or pool_type (pooled).
-    let type_name = identity.type_name().to_lowercase();
-    if type_name.contains("paddle") {
-        return COLOR_PADDLE;
-    }
-    if type_name.contains("ball") {
-        return COLOR_BALL;
-    }
-    if type_name.contains("wall") {
-        return COLOR_WALL;
-    }
-    if type_name.contains("brick") || type_name.contains("destructible") {
-        let row_idx = ((y / 25.0).abs() as usize) % BRICK_COLORS.len();
-        return BRICK_COLORS[row_idx];
-    }
-
-    // For pooled entities, also check the variant field.
-    if let Identity::Pooled(pid) = identity {
-        let variant = pid.variant.to_lowercase();
-        if variant.contains("brick") {
-            let row_idx = ((y / 25.0).abs() as usize) % BRICK_COLORS.len();
-            return BRICK_COLORS[row_idx];
-        }
-    }
-
-    COLOR_DEFAULT
+    // Hash the role + type_name for a base color.
+    let key = format!("{role}:{type_name}");
+    let idx = hash_str(&key) % COLOR_PALETTE.len();
+    COLOR_PALETTE[idx]
 }
 
 // ---------------------------------------------------------------------------
@@ -460,21 +453,26 @@ impl DebugRenderer {
 
     /// Extract draw commands from ECS world state.
     ///
-    /// Queries entities with [`Position`] and [`PhysicsBody`] components,
-    /// maps entity type/role to color, and produces [`DrawCommand`]s for
-    /// rendering.
+    /// Scans ALL entities for spatial data, supporting two sources:
+    ///
+    /// 1. **Native physics**: entities with [`Position`] + [`PhysicsBody`]
+    /// 2. **Dynamic JSON**: entities with `"position"` (`{x, y}`) +
+    ///    `"size"` (`{w, h}`) dynamic components
+    ///
+    /// This makes the renderer game-agnostic: any game that sets position
+    /// and size on its entities will have them rendered automatically.
     ///
     /// This is a pure function that does not require a GPU -- suitable for
     /// headless testing and verification.
     pub fn extract_draw_commands(world: &World) -> Vec<DrawCommand> {
         let mut commands = Vec::new();
+        let mut rendered: HashSet<EntityId> = HashSet::new();
 
-        // Query all entities that have both Position and PhysicsBody.
+        // --- Phase 1: Native physics entities ---
         for (entity_id, (pos, body)) in world.query::<(&Position, &PhysicsBody)>() {
             let x = pos.x as f32;
             let y = pos.y as f32;
 
-            // Determine size from collider shape.
             let (width, height) = match &body.collider {
                 ColliderShape::Box {
                     half_width,
@@ -486,9 +484,54 @@ impl DebugRenderer {
                 }
             };
 
-            // Get identity for color mapping.
             let identity = world.get_component::<Identity>(entity_id);
-            let color = color_for_entity(identity, y);
+            let type_comp = Self::find_type_component(world, entity_id);
+            let color = color_for_entity(identity, type_comp.as_ref());
+
+            commands.push(DrawCommand {
+                x,
+                y,
+                width,
+                height,
+                color,
+            });
+            rendered.insert(entity_id);
+        }
+
+        // --- Phase 2: Dynamic JSON component entities ---
+        // NOTE: Native physics components must NOT be registered under the names
+        // "position" or "size", as Phase 2 uses those names to discover dynamic
+        // JSON spatial data. Naming collisions would cause double-rendering.
+        for entity_id in world.all_entity_ids() {
+            if rendered.contains(&entity_id) {
+                continue;
+            }
+
+            // Must have a "position" dynamic component with x and y fields.
+            let pos_json = match world.get_component_by_name(entity_id, "position") {
+                Some(v) => v,
+                None => continue,
+            };
+            let x = match pos_json.get("x").and_then(|v| v.as_f64()) {
+                Some(v) => v as f32,
+                None => continue,
+            };
+            let y = match pos_json.get("y").and_then(|v| v.as_f64()) {
+                Some(v) => v as f32,
+                None => continue,
+            };
+
+            // Must have a "size" dynamic component with w and h fields.
+            let size_json = match world.get_component_by_name(entity_id, "size") {
+                Some(v) => v,
+                None => continue,
+            };
+            let width = size_json.get("w").and_then(|v| v.as_f64()).unwrap_or(1.0) as f32;
+            let height = size_json.get("h").and_then(|v| v.as_f64()).unwrap_or(1.0) as f32;
+
+            let identity = world.get_component::<Identity>(entity_id);
+            let type_comp = Self::find_type_component(world, entity_id);
+            let color = color_for_entity(identity, type_comp.as_ref());
 
             commands.push(DrawCommand {
                 x,
@@ -499,7 +542,44 @@ impl DebugRenderer {
             });
         }
 
+        // Warn once if entities exist but nothing is renderable.
+        // Using a static flag to avoid spamming the log every frame.
+        if commands.is_empty() && world.entity_count() > 0 {
+            use std::sync::atomic::{AtomicBool, Ordering};
+            static WARNED: AtomicBool = AtomicBool::new(false);
+            if !WARNED.swap(true, Ordering::Relaxed) {
+                tracing::warn!(
+                    entity_count = world.entity_count(),
+                    "renderer found 0 drawable entities out of {} total -- \
+                     entities need either (Position + PhysicsBody) or \
+                     (dynamic \"position\" + dynamic \"size\") components to render",
+                    world.entity_count()
+                );
+            }
+        }
+
         commands
+    }
+
+    /// Search for a "type" component on an entity (e.g., `tile_type`,
+    /// `entity_type`). Returns its JSON value if found.
+    ///
+    /// Looks for any registered dynamic component whose name ends with
+    /// `_type` or equals `type`.
+    ///
+    /// NOTE: This scans all registered component names per entity, making it
+    /// O(N_components * N_entities) per frame. At MVP scale this is fine, but
+    /// for larger registries consider caching the list of `_type`-suffixed
+    /// component names once and reusing it.
+    fn find_type_component(world: &World, entity_id: EntityId) -> Option<serde_json::Value> {
+        for name in world.registry().registered_names() {
+            if name.ends_with("_type") || name == "type" {
+                if let Some(val) = world.get_component_by_name(entity_id, name) {
+                    return Some(val);
+                }
+            }
+        }
+        None
     }
 
     /// Render a frame from draw commands.
@@ -614,9 +694,8 @@ impl DebugRenderer {
     ///
     /// This is a convenience method that combines
     /// [`extract_draw_commands`](Self::extract_draw_commands) and
-    /// [`render`](Self::render) into a single step. Useful for the
-    /// windowed app runner where you just want to render the current
-    /// world state each frame.
+    /// [`render`](Self::render) into a single step. Automatically fits
+    /// the camera to the bounding box of all draw commands with padding.
     ///
     /// # Errors
     ///
@@ -624,7 +703,60 @@ impl DebugRenderer {
     /// output texture (e.g., window minimized, surface lost).
     pub fn render_world(&mut self, world: &World) -> Result<(), wgpu::SurfaceError> {
         let commands = Self::extract_draw_commands(world);
+        self.auto_fit_camera(&commands);
         self.render(&commands)
+    }
+
+    /// Fit the camera to the bounding box of the draw commands with padding.
+    ///
+    /// Ensures all entities are visible regardless of their coordinate system.
+    /// Adds 10% padding around the bounding box for visual breathing room.
+    pub fn auto_fit_camera(&mut self, commands: &[DrawCommand]) {
+        if commands.is_empty() {
+            return;
+        }
+
+        let mut min_x = f32::MAX;
+        let mut min_y = f32::MAX;
+        let mut max_x = f32::MIN;
+        let mut max_y = f32::MIN;
+
+        for cmd in commands {
+            let half_w = cmd.width / 2.0;
+            let half_h = cmd.height / 2.0;
+            min_x = min_x.min(cmd.x - half_w);
+            min_y = min_y.min(cmd.y - half_h);
+            max_x = max_x.max(cmd.x + half_w);
+            max_y = max_y.max(cmd.y + half_h);
+        }
+
+        let content_w = max_x - min_x;
+        let content_h = max_y - min_y;
+
+        // Add 10% padding on each side.
+        let padding_x = content_w * 0.1;
+        let padding_y = content_h * 0.1;
+
+        // Minimum dimensions to avoid degenerate cameras.
+        let cam_w = (content_w + padding_x * 2.0).max(1.0);
+        let cam_h = (content_h + padding_y * 2.0).max(1.0);
+
+        // Maintain aspect ratio of the window.
+        let window_aspect = self.config.width as f32 / self.config.height.max(1) as f32;
+        let content_aspect = cam_w / cam_h;
+
+        let (final_w, final_h) = if content_aspect > window_aspect {
+            // Content is wider than window -- fit width, expand height.
+            (cam_w, cam_w / window_aspect)
+        } else {
+            // Content is taller than window -- fit height, expand width.
+            (cam_h * window_aspect, cam_h)
+        };
+
+        self.camera.x = (min_x + max_x) / 2.0;
+        self.camera.y = (min_y + max_y) / 2.0;
+        self.camera.width = final_w;
+        self.camera.height = final_h;
     }
 
     /// Resize the surface when the window size changes.

@@ -1309,7 +1309,10 @@ mod tests {
             }
         }
 
-        assert!(bounced, "ball should bounce off brick (dy should flip positive)");
+        assert!(
+            bounced,
+            "ball should bounce off brick (dy should flip positive)"
+        );
     }
 
     /// Ball bounces correctly when brick is deferred-unregistered on collision tick.

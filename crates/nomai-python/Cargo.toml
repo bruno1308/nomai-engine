@@ -9,7 +9,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 nomai-ecs = { path = "../nomai-ecs" }
-nomai-engine = { path = "../nomai-engine" }
+nomai-engine = { path = "../nomai-engine", features = ["renderer"] }
 nomai-manifest = { path = "../nomai-manifest" }
 nomai-wasm-host = { path = "../nomai-wasm-host" }
 pyo3 = { workspace = true }

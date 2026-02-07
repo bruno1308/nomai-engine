@@ -51,7 +51,7 @@ class NomaiEngine:
     def __init__(
         self,
         *,
-        headless: bool = True,
+        headless: bool = False,
         fixed_dt: float | None = None,
     ) -> None:
         cls = _get_native_engine()
@@ -275,6 +275,27 @@ class NomaiEngine:
         hashing. Pass an empty dict to clear the current input.
         """
         self._engine.set_input(inputs)
+
+    # -- Windowed rendering --------------------------------------------------
+
+    def run(
+        self,
+        title: str = "Nomai Engine",
+        width: int = 800,
+        height: int = 600,
+    ) -> None:
+        """Open a window and run the simulation with debug rendering.
+
+        Each frame runs one tick and renders the world state. The window
+        blocks until closed. After the window closes, manifests and world
+        state remain accessible for verification.
+
+        Args:
+            title: Window title.
+            width: Window width in pixels.
+            height: Window height in pixels.
+        """
+        self._engine.run(title, width, height)
 
     # -- Info ----------------------------------------------------------------
 

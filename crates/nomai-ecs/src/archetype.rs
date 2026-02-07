@@ -549,6 +549,26 @@ impl Archetype {
         Some(&mut *(entry.column.get_raw_mut(row) as *mut T))
     }
 
+    /// Get a raw const pointer to a component value at `row` for the given
+    /// `type_id`.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure the pointer is used with the correct concrete
+    /// type stored in the column.
+    pub unsafe fn get_component_raw(
+        &self,
+        row: usize,
+        type_id: ComponentTypeId,
+    ) -> Option<*const u8> {
+        let idx = self.column_index(type_id)?;
+        let entry = &self.columns[idx].1;
+        if row >= entry.column.len() {
+            return None;
+        }
+        Some(entry.column.get_raw(row))
+    }
+
     /// Get a raw mutable pointer to a component value at `row` for the given
     /// `type_id`.
     ///

@@ -848,6 +848,38 @@ impl World {
         self.allocator.is_alive(entity)
     }
 
+    /// Get all alive entity IDs in the world.
+    ///
+    /// The order is not guaranteed. This is useful for iteration over all
+    /// entities when you need to check heterogeneous component combinations
+    /// (e.g., rendering entities with dynamic spatial components).
+    pub fn all_entity_ids(&self) -> Vec<EntityId> {
+        self.entity_locations.keys().copied().collect()
+    }
+
+    /// Read a component by its registered string name and return its JSON
+    /// representation.
+    ///
+    /// This is the read counterpart to [`set_component_by_name`]. It looks up
+    /// the component type by name, reads the raw column data, and serializes
+    /// it to `serde_json::Value` using the registered serializer.
+    ///
+    /// Returns `None` if the component name is not registered, the entity
+    /// does not exist, or the entity does not have the named component.
+    pub fn get_component_by_name(
+        &self,
+        entity: EntityId,
+        component_name: &str,
+    ) -> Option<serde_json::Value> {
+        let type_id = self.registry.lookup_by_name(component_name)?;
+        let loc = self.entity_locations.get(&entity)?;
+        let archetype = &self.archetypes[loc.archetype_id.0 as usize];
+        #[allow(unsafe_code)]
+        let ptr = unsafe { archetype.get_component_raw(loc.row, type_id)? };
+        let serialize_fn = self.serializer_registry.get(type_id)?;
+        Some(serialize_fn(ptr))
+    }
+
     // -- tiered entity spawning ---------------------------------------------
 
     /// Spawn a **Semantic-tier** entity with full identity and manifest tracking.

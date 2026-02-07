@@ -47,8 +47,28 @@ fn manifest_to_pyobject(py: Python<'_>, manifest: &TickManifest) -> PyResult<PyO
 /// ```
 #[pyclass(name = "NomaiEngine", unsendable)]
 pub struct PyNomaiEngine {
-    tick_loop: TickLoop,
+    tick_loop: Option<TickLoop>,
     wasm_module: Option<WasmModule>,
+}
+
+impl PyNomaiEngine {
+    /// Borrow the tick loop, returning a clear error if consumed by `run()`.
+    fn loop_ref(&self) -> PyResult<&TickLoop> {
+        self.tick_loop.as_ref().ok_or_else(|| {
+            pyo3::exceptions::PyRuntimeError::new_err(
+                "engine was consumed by run() -- create a new engine instance",
+            )
+        })
+    }
+
+    /// Mutably borrow the tick loop.
+    fn loop_mut(&mut self) -> PyResult<&mut TickLoop> {
+        self.tick_loop.as_mut().ok_or_else(|| {
+            pyo3::exceptions::PyRuntimeError::new_err(
+                "engine was consumed by run() -- create a new engine instance",
+            )
+        })
+    }
 }
 
 #[pymethods]
@@ -56,10 +76,10 @@ impl PyNomaiEngine {
     /// Create a new engine instance.
     ///
     /// Args:
-    ///     headless: Run without rendering (default True).
+    ///     headless: Run without rendering (default False).
     ///     fixed_dt: Fixed timestep in seconds (default 1/60).
     #[new]
-    #[pyo3(signature = (headless=true, fixed_dt=None))]
+    #[pyo3(signature = (headless=false, fixed_dt=None))]
     fn new(headless: bool, fixed_dt: Option<f64>) -> PyResult<Self> {
         let dt = fixed_dt.unwrap_or(1.0 / 60.0);
         if dt <= 0.0 || !dt.is_finite() {
@@ -73,7 +93,7 @@ impl PyNomaiEngine {
             headless,
         };
         Ok(Self {
-            tick_loop: TickLoop::new(world, config),
+            tick_loop: Some(TickLoop::new(world, config)),
             wasm_module: None,
         })
     }
@@ -84,7 +104,7 @@ impl PyNomaiEngine {
     /// a unique component type, so `register_component("position")` and
     /// `register_component("velocity")` create distinct component types.
     fn register_component(&mut self, name: &str) -> PyResult<()> {
-        self.tick_loop
+        self.loop_mut()?
             .world_mut()
             .register_dynamic_component::<serde_json::Value>(name);
         Ok(())
@@ -92,8 +112,8 @@ impl PyNomaiEngine {
 
     /// Run one tick and return the manifest as a Python dict.
     fn tick(&mut self, py: Python<'_>) -> PyResult<PyObject> {
-        self.tick_loop.tick();
-        let manifest = self.tick_loop.last_manifest().ok_or_else(|| {
+        self.loop_mut()?.tick();
+        let manifest = self.loop_ref()?.last_manifest().ok_or_else(|| {
             pyo3::exceptions::PyRuntimeError::new_err(
                 "no manifest produced after tick -- this should not happen",
             )
@@ -113,8 +133,8 @@ impl PyNomaiEngine {
         }
         let mut manifests = Vec::with_capacity(n as usize);
         for _ in 0..n {
-            self.tick_loop.tick();
-            let manifest = self.tick_loop.last_manifest().ok_or_else(|| {
+            self.loop_mut()?.tick();
+            let manifest = self.loop_ref()?.last_manifest().ok_or_else(|| {
                 pyo3::exceptions::PyRuntimeError::new_err(
                     "no manifest produced after tick -- this should not happen",
                 )
@@ -128,7 +148,7 @@ impl PyNomaiEngine {
     ///
     /// Returns None if no ticks have been executed yet.
     fn last_manifest(&self, py: Python<'_>) -> PyResult<Option<PyObject>> {
-        match self.tick_loop.last_manifest() {
+        match self.loop_ref()?.last_manifest() {
             Some(m) => Ok(Some(manifest_to_pyobject(py, m)?)),
             None => Ok(None),
         }
@@ -138,7 +158,7 @@ impl PyNomaiEngine {
     ///
     /// Returns None if the tick is not in the rolling history window.
     fn manifest_at_tick(&self, py: Python<'_>, tick: u64) -> PyResult<Option<PyObject>> {
-        match self.tick_loop.manifest_at_tick(tick) {
+        match self.loop_ref()?.manifest_at_tick(tick) {
             Some(m) => Ok(Some(manifest_to_pyobject(py, m)?)),
             None => Ok(None),
         }
@@ -146,7 +166,7 @@ impl PyNomaiEngine {
 
     /// Get all manifests in the history window as a list of dicts.
     fn manifest_history(&self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
-        let history = self.tick_loop.manifest().history();
+        let history = self.loop_ref()?.manifest().history();
         let mut result = Vec::with_capacity(history.len());
         for m in history {
             result.push(manifest_to_pyobject(py, m)?);
@@ -155,13 +175,13 @@ impl PyNomaiEngine {
     }
 
     /// Current tick count.
-    fn tick_count(&self) -> u64 {
-        self.tick_loop.tick_count()
+    fn tick_count(&self) -> PyResult<u64> {
+        Ok(self.loop_ref()?.tick_count())
     }
 
     /// Current simulation time in seconds.
-    fn sim_time(&self) -> f64 {
-        self.tick_loop.sim_time()
+    fn sim_time(&self) -> PyResult<f64> {
+        Ok(self.loop_ref()?.sim_time())
     }
 
     /// Spawn a semantic entity via the command buffer.
@@ -182,7 +202,7 @@ impl PyNomaiEngine {
     ) -> PyResult<()> {
         let comp_vec = pydict_to_component_vec(components, py)?;
 
-        self.tick_loop.command_buffer_mut().spawn_semantic(
+        self.loop_mut()?.command_buffer_mut().spawn_semantic(
             EntityIdentity {
                 entity_type: entity_type.to_owned(),
                 role: role.to_owned(),
@@ -201,7 +221,7 @@ impl PyNomaiEngine {
     /// The despawn happens when the next tick's command buffer is applied.
     fn despawn_entity(&mut self, entity_id: u64) -> PyResult<()> {
         let eid = EntityId::from_raw(entity_id);
-        self.tick_loop.command_buffer_mut().despawn(
+        self.loop_mut()?.command_buffer_mut().despawn(
             eid,
             SystemId(0),
             CausalReason::SystemInternal("python_despawn".to_owned()),
@@ -223,7 +243,7 @@ impl PyNomaiEngine {
         let json_val = pyobj_to_json_value(value, py)?;
 
         let eid = EntityId::from_raw(entity_id);
-        self.tick_loop.command_buffer_mut().set_component(
+        self.loop_mut()?.command_buffer_mut().set_component(
             eid,
             component_name,
             json_val,
@@ -278,17 +298,16 @@ impl PyNomaiEngine {
     /// Calling this again replaces the existing physics world (all registered
     /// physics entities are lost).
     fn init_physics(&mut self) -> PyResult<()> {
-        if self.tick_loop.physics().is_some() {
+        let tl = self.loop_mut()?;
+        if tl.physics().is_some() {
             tracing::warn!("init_physics() called again -- replacing existing physics world");
         }
-        self.tick_loop.set_physics(PhysicsWorld::new_zero_gravity());
+        tl.set_physics(PhysicsWorld::new_zero_gravity());
         // Auto-register position/velocity so the physics step's commands
         // don't fail with "unknown component" errors.
-        self.tick_loop
-            .world_mut()
+        tl.world_mut()
             .register_dynamic_component::<serde_json::Value>("position");
-        self.tick_loop
-            .world_mut()
+        tl.world_mut()
             .register_dynamic_component::<serde_json::Value>("velocity");
         Ok(())
     }
@@ -361,7 +380,7 @@ impl PyNomaiEngine {
 
         // Validate entity is alive.
         let eid = EntityId::from_raw(entity_id);
-        if !self.tick_loop.world().is_alive(eid) {
+        if !self.loop_ref()?.world().is_alive(eid) {
             return Err(pyo3::exceptions::PyValueError::new_err(format!(
                 "entity {entity_id} is not alive -- spawn it with spawn_entity() \
                  and call tick() before registering with physics"
@@ -369,7 +388,7 @@ impl PyNomaiEngine {
         }
 
         // Ensure physics is initialized.
-        let physics = self.tick_loop.physics_mut().ok_or_else(|| {
+        let physics = self.loop_mut()?.physics_mut().ok_or_else(|| {
             pyo3::exceptions::PyRuntimeError::new_err(
                 "physics not initialized -- call init_physics() first",
             )
@@ -451,8 +470,8 @@ impl PyNomaiEngine {
     }
 
     /// Get the total number of alive entities in the world.
-    fn entity_count(&self) -> usize {
-        self.tick_loop.world().entity_count()
+    fn entity_count(&self) -> PyResult<usize> {
+        Ok(self.loop_ref()?.world().entity_count())
     }
 
     /// Return all tracked entities from the manifest pipeline's entity index.
@@ -461,7 +480,7 @@ impl PyNomaiEngine {
     /// fields like `entity_id`, `tier`, `entity_type`, `role`, `alive`,
     /// `spawned_at_tick`, and `despawned_at_tick`.
     fn entity_index(&self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
-        let index = self.tick_loop.manifest().entity_index();
+        let index = self.loop_ref()?.manifest().entity_index();
         let json_mod = py.import("json")?;
         let mut result = Vec::with_capacity(index.len());
         for entry in index.values() {
@@ -485,7 +504,7 @@ impl PyNomaiEngine {
     ///     entity_id: The raw entity ID (u64).
     fn get_entity(&self, py: Python<'_>, entity_id: u64) -> PyResult<Option<PyObject>> {
         let eid = EntityId::from_raw(entity_id);
-        let index = self.tick_loop.manifest().entity_index();
+        let index = self.loop_ref()?.manifest().entity_index();
         match index.get(&eid) {
             Some(entry) => {
                 let json_str = serde_json::to_string(entry).map_err(|e| {
@@ -522,7 +541,7 @@ impl PyNomaiEngine {
         tick: u64,
     ) -> PyResult<Option<PyObject>> {
         let eid = EntityId::from_raw(entity_id);
-        let manifest = match self.tick_loop.manifest_at_tick(tick) {
+        let manifest = match self.loop_ref()?.manifest_at_tick(tick) {
             Some(m) => m,
             None => return Ok(None),
         };
@@ -536,7 +555,7 @@ impl PyNomaiEngine {
 
         match change {
             Some(c) => {
-                let chain = self.tick_loop.manifest().build_causal_chain(c);
+                let chain = self.loop_ref()?.manifest().build_causal_chain(c);
                 let json_str = serde_json::to_string(&chain).map_err(|e| {
                     pyo3::exceptions::PyRuntimeError::new_err(format!(
                         "failed to serialize CausalChain to JSON: {e} \
@@ -558,7 +577,7 @@ impl PyNomaiEngine {
     /// Returns a JSON string of the full ``EngineSnapshot``. Pass this string
     /// to ``restore_snapshot()`` to rewind the engine to this state.
     fn capture_snapshot(&self) -> PyResult<String> {
-        let snapshot = self.tick_loop.capture_snapshot();
+        let snapshot = self.loop_ref()?.capture_snapshot();
         serde_json::to_string(&snapshot).map_err(|e| {
             pyo3::exceptions::PyRuntimeError::new_err(format!(
                 "failed to serialize EngineSnapshot to JSON: {e}"
@@ -581,7 +600,7 @@ impl PyNomaiEngine {
                     "invalid snapshot JSON: {e} -- ensure the string was produced by capture_snapshot()"
                 ))
             })?;
-        self.tick_loop
+        self.loop_mut()?
             .restore_from_snapshot(&snapshot)
             .map_err(|e| {
                 pyo3::exceptions::PyRuntimeError::new_err(format!("snapshot restore failed: {e}"))
@@ -593,8 +612,8 @@ impl PyNomaiEngine {
     /// Returns a 64-character lowercase hex string. Two engines with
     /// identical state (world, tick counter, fixed_dt, input frame)
     /// will produce the same hash.
-    fn state_hash(&self) -> String {
-        self.tick_loop.state_hash()
+    fn state_hash(&self) -> PyResult<String> {
+        Ok(self.loop_ref()?.state_hash())
     }
 
     // -- Replay -------------------------------------------------------------
@@ -615,7 +634,7 @@ impl PyNomaiEngine {
                     "invalid replay log JSON: {e} -- ensure the string is a valid ReplayLog"
                 ))
             })?;
-        let result = nomai_engine::replay::replay(&mut self.tick_loop, &log).map_err(|e| {
+        let result = nomai_engine::replay::replay(self.loop_mut()?, &log).map_err(|e| {
             pyo3::exceptions::PyRuntimeError::new_err(format!("replay failed: {e}"))
         })?;
         serde_json::to_string(&result).map_err(|e| {
@@ -646,8 +665,45 @@ impl PyNomaiEngine {
             })?;
             frame.inputs.insert(name, json_val);
         }
-        self.tick_loop.set_input(frame);
+        self.loop_mut()?.set_input(frame);
         Ok(())
+    }
+
+    // -- Windowed rendering -------------------------------------------------
+
+    /// Open a window and run the simulation with debug rendering.
+    ///
+    /// Takes ownership of the internal tick loop for the duration of the
+    /// window. The window runs a render loop where each frame:
+    ///
+    /// 1. Runs one tick of the simulation.
+    /// 2. Renders the current world state via the debug 2D renderer.
+    ///
+    /// When the window is closed the tick loop is returned to the engine,
+    /// so manifests and world state are still accessible afterwards.
+    ///
+    /// Args:
+    ///     title: Window title (default "Nomai Engine").
+    ///     width: Window width in pixels (default 800).
+    ///     height: Window height in pixels (default 600).
+    #[pyo3(signature = (title="Nomai Engine", width=800, height=600))]
+    fn run(&mut self, title: &str, width: u32, height: u32) -> PyResult<()> {
+        let tick_loop = self.tick_loop.take().ok_or_else(|| {
+            pyo3::exceptions::PyRuntimeError::new_err(
+                "engine was already consumed by a previous run() call \
+                 -- create a new engine instance",
+            )
+        })?;
+
+        match nomai_engine::render::run_windowed(tick_loop, title, width, height) {
+            Ok(returned_loop) => {
+                self.tick_loop = Some(returned_loop);
+                Ok(())
+            }
+            Err(e) => Err(pyo3::exceptions::PyRuntimeError::new_err(format!(
+                "windowed renderer failed: {e}"
+            ))),
+        }
     }
 }
 

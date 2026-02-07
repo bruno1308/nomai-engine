@@ -389,7 +389,12 @@ impl World {
             "World::query() cannot be used with mutable query items (&mut T). \
              Use World::query_mut() instead, which requires &mut self."
         );
-        let type_ids = Q::type_ids(self).unwrap_or_default();
+        // If any queried component type is not registered, no entities
+        // can possibly match, so return an empty iterator.
+        let type_ids = match Q::type_ids(self) {
+            Some(ids) => ids,
+            None => return QueryIter::new(self, vec![]),
+        };
         let matching = self.matching_archetypes(&type_ids);
         let arch_indices: Vec<u32> = matching.iter().map(|id| id.0).collect();
         QueryIter::new(self, arch_indices)
@@ -414,7 +419,12 @@ impl World {
     /// ```
     pub fn query_mut<Q: Query>(&mut self) -> QueryIterMut<'_, Q> {
         Q::validate_no_duplicate_muts(self);
-        let type_ids = Q::type_ids(self).unwrap_or_default();
+        // If any queried component type is not registered, no entities
+        // can possibly match, so return an empty iterator.
+        let type_ids = match Q::type_ids(self) {
+            Some(ids) => ids,
+            None => return QueryIterMut::new(self, vec![]),
+        };
         let matching = self.matching_archetypes(&type_ids);
         let arch_indices: Vec<u32> = matching.iter().map(|id| id.0).collect();
         QueryIterMut::new(self, arch_indices)
