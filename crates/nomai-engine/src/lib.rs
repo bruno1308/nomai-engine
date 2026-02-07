@@ -27,6 +27,7 @@
 #![deny(unsafe_code)]
 
 pub mod physics;
+pub mod snapshot;
 pub mod tick;
 
 // ---------------------------------------------------------------------------
@@ -52,6 +53,7 @@ pub mod prelude {
     pub use nomai_ecs::prelude::*;
 
     // Engine-specific exports.
+    pub use crate::snapshot::EngineSnapshot;
     pub use crate::tick::{InputFrame, SystemFn, TickConfig, TickDiagnostics, TickLoop};
 
     // Physics types.

@@ -101,10 +101,16 @@ pub struct TickDiagnostics {
 // ---------------------------------------------------------------------------
 
 /// A single frame of recorded input for replay.
+///
+/// Uses [`BTreeMap`] instead of `HashMap` for deterministic iteration order,
+/// which ensures BLAKE3 hashes are reproducible across processes.
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct InputFrame {
     /// Arbitrary key-value pairs representing inputs for this tick.
-    pub inputs: std::collections::HashMap<String, serde_json::Value>,
+    ///
+    /// Stored in a [`BTreeMap`] so serialization order is deterministic,
+    /// guaranteeing stable BLAKE3 hashes across runs.
+    pub inputs: std::collections::BTreeMap<String, serde_json::Value>,
 }
 
 // ---------------------------------------------------------------------------
@@ -641,6 +647,45 @@ impl TickLoop {
     /// Mutable access to the WASM module, if attached.
     pub fn wasm_module_mut(&mut self) -> Option<&mut nomai_wasm_host::WasmModule> {
         self.wasm_module.as_mut()
+    }
+
+    // -- snapshot helpers (used by crate::snapshot) ---------------------------
+
+    /// Set the tick counter directly (used during snapshot restore).
+    ///
+    /// This bypasses the normal tick advancement and should only be used
+    /// by the snapshot restore path. Public within the crate only.
+    pub(crate) fn set_tick_counter(&mut self, counter: u64) {
+        self.tick_counter = counter;
+    }
+
+    /// Reset the manifest pipeline to a fresh instance.
+    ///
+    /// Used during snapshot restore to discard stale manifest history.
+    /// Public within the crate only.
+    pub(crate) fn reset_manifest(&mut self) {
+        self.manifest = ManifestPipeline::new();
+    }
+
+    /// Clear the command buffer, discarding any pending commands.
+    ///
+    /// Used during snapshot restore to prevent stale commands from leaking
+    /// into the next tick. Public within the crate only.
+    pub(crate) fn clear_command_buffer(&mut self) {
+        self.command_buffer = CommandBuffer::new();
+    }
+
+    /// Set the fixed time step directly (used during snapshot restore).
+    ///
+    /// This overrides the `fixed_dt` from the original config so that the
+    /// restored simulation runs at the same time step as the captured state.
+    /// Public within the crate only.
+    pub(crate) fn set_fixed_dt(&mut self, dt: f64) {
+        assert!(
+            dt > 0.0 && dt.is_finite(),
+            "fixed_dt must be positive and finite, got {dt}"
+        );
+        self.fixed_dt = dt;
     }
 }
 
