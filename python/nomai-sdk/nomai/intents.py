@@ -13,6 +13,7 @@ import json
 import logging
 from dataclasses import dataclass, field
 from enum import Enum
+from pathlib import Path
 from typing import Self
 
 logger = logging.getLogger(__name__)
@@ -32,6 +33,7 @@ class TriggerType(Enum):
     TICK_REACHED = "tick_reached"
     AND = "and"
     OR = "or"
+    AFTER = "after"
 
 
 @dataclass(frozen=True)
@@ -176,6 +178,15 @@ def or_(*triggers: Trigger) -> Trigger:
     return Trigger(
         type=TriggerType.OR,
         children=list(triggers),
+    )
+
+
+def after(trigger: Trigger, delay_ticks: int) -> Trigger:
+    """Create an After trigger: fires delay_ticks after the child trigger fires."""
+    return Trigger(
+        type=TriggerType.AFTER,
+        params={"delay_ticks": delay_ticks},
+        children=[trigger],
     )
 
 
@@ -479,6 +490,55 @@ class IntentSpec:
         data: dict[str, object] = json.loads(json_str)
         return cls.from_dict(data)
 
+    def validate(self) -> list[str]:
+        """Validate this intent spec for completeness and consistency.
+
+        Returns a list of warning strings. An empty list means no issues.
+        """
+        warnings: list[str] = []
+
+        if self.kind == IntentKind.BEHAVIOR:
+            if self.trigger is None:
+                warnings.append(f"[{self.name}] Behavior intent has no trigger defined")
+            else:
+                warnings.extend(self._validate_trigger(self.trigger))
+            if self.expected is None:
+                warnings.append(f"[{self.name}] Behavior intent has no expected outcome defined")
+        elif self.kind == IntentKind.METRIC:
+            if self.metric_range is None:
+                warnings.append(f"[{self.name}] Metric intent has no range defined")
+            elif self.metric_range[0] > self.metric_range[1]:
+                warnings.append(
+                    f"[{self.name}] Metric range is inverted: "
+                    f"min ({self.metric_range[0]}) > max ({self.metric_range[1]})"
+                )
+        elif self.kind == IntentKind.ENTITY:
+            if not self.entity_role:
+                warnings.append(f"[{self.name}] Entity intent has no role defined")
+        elif self.kind == IntentKind.INVARIANT:
+            if not self.condition:
+                warnings.append(f"[{self.name}] Invariant intent has no condition defined")
+
+        return warnings
+
+    def _validate_trigger(self, trigger: Trigger) -> list[str]:
+        """Recursively validate a trigger tree."""
+        warnings: list[str] = []
+        if trigger.type == TriggerType.AFTER:
+            delay = trigger.params.get("delay_ticks", 0)
+            if isinstance(delay, (int, float)) and delay <= 0:
+                warnings.append(
+                    f"[{self.name}] After trigger has delay_ticks <= 0"
+                )
+        if trigger.type in (TriggerType.AND, TriggerType.OR):
+            if not trigger.children:
+                warnings.append(
+                    f"[{self.name}] {trigger.type.value.upper()} trigger has no children"
+                )
+        for child in trigger.children:
+            warnings.extend(self._validate_trigger(child))
+        return warnings
+
 
 # ---------------------------------------------------------------------------
 # VerificationSuite
@@ -525,3 +585,35 @@ class VerificationSuite:
         """Deserialize from a JSON string."""
         data: dict[str, object] = json.loads(json_str)
         return cls.from_dict(data)
+
+    def validate(self) -> list[str]:
+        """Validate all intents in this suite.
+
+        Returns a list of warning strings aggregated from all intents.
+        """
+        warnings: list[str] = []
+        for intent in self.intents:
+            warnings.extend(intent.validate())
+        return warnings
+
+    def save(self, path: str | Path) -> None:
+        """Save this suite to a JSON file.
+
+        Creates parent directories if they don't exist.
+        """
+        p = Path(path)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(self.to_json(), encoding="utf-8")
+
+    @classmethod
+    def load(cls, path: str | Path) -> Self:
+        """Load a suite from a JSON file.
+
+        Raises FileNotFoundError if the file does not exist.
+        """
+        p = Path(path)
+        if not p.exists():
+            msg = f"Suite file not found: {p}"
+            raise FileNotFoundError(msg)
+        text = p.read_text(encoding="utf-8")
+        return cls.from_json(text)

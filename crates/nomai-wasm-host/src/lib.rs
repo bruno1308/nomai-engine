@@ -409,6 +409,26 @@ mod hardening_tests {
     }
 
     #[test]
+    fn env_abort_import_allowed() {
+        let config = WasmConfig::default();
+        let bytes = fixture_bytes("env_abort.wat");
+        let module = WasmModule::from_bytes(&config, &bytes);
+        assert!(module.is_ok(), "env::abort should be allowed");
+    }
+
+    #[test]
+    fn env_non_abort_import_rejected() {
+        let config = WasmConfig::default();
+        let bytes = fixture_bytes("env_bad_func.wat");
+        let result = WasmModule::from_bytes(&config, &bytes);
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            WasmError::InvalidImport { .. }
+        ));
+    }
+
+    #[test]
     fn nomai_and_env_imports_allowed() {
         // The host_api_test.wat imports from "nomai" and the env::abort is
         // also registered. Both should be allowed.

@@ -96,7 +96,7 @@ impl WasmModule {
     /// - [`WasmError::CompileError`] if the bytes are not valid WASM/WAT.
     /// - [`WasmError::MissingExport`] if `tick()` is not exported.
     /// - [`WasmError::InvalidImport`] if the module imports from a namespace
-    ///   other than `"nomai"` or `"env"`.
+    ///   other than `"nomai"`, or imports `"env"` functions other than `abort`.
     /// - [`WasmError::Runtime`] if instantiation fails (e.g. unsatisfied imports).
     pub fn from_bytes(config: &WasmConfig, bytes: &[u8]) -> Result<Self, WasmError> {
         // Build engine with fuel metering enabled.
@@ -119,10 +119,12 @@ impl WasmModule {
             });
         }
 
-        // Validate imports -- only "nomai" and "env" namespaces are allowed.
+        // Validate imports -- only "nomai::*" and "env::abort" are allowed.
         for import in module.imports() {
             let module_name = import.module();
-            if module_name != "nomai" && module_name != "env" {
+            let allowed =
+                module_name == "nomai" || (module_name == "env" && import.name() == "abort");
+            if !allowed {
                 return Err(WasmError::InvalidImport {
                     module: module_name.to_owned(),
                     name: import.name().to_owned(),
@@ -331,7 +333,7 @@ impl WasmModule {
     /// - [`WasmError::CompileError`] if the new bytes are invalid WASM/WAT.
     /// - [`WasmError::MissingExport`] if the new module lacks a `tick()` export.
     /// - [`WasmError::InvalidImport`] if the new module imports from a namespace
-    ///   other than `"nomai"` or `"env"`.
+    ///   other than `"nomai"`, or imports `"env"` functions other than `abort`.
     /// - [`WasmError::Runtime`] if instantiation fails.
     ///
     /// On failure, the original module instance remains intact and functional.
@@ -351,10 +353,12 @@ impl WasmModule {
             });
         }
 
-        // Validate imports -- only "nomai" and "env" namespaces are allowed.
+        // Validate imports -- only "nomai::*" and "env::abort" are allowed.
         for import in module.imports() {
             let module_name = import.module();
-            if module_name != "nomai" && module_name != "env" {
+            let allowed =
+                module_name == "nomai" || (module_name == "env" && import.name() == "abort");
+            if !allowed {
                 return Err(WasmError::InvalidImport {
                     module: module_name.to_owned(),
                     name: import.name().to_owned(),

@@ -7,6 +7,9 @@ complete breakout verification suite expressed using the intent DSL.
 from __future__ import annotations
 
 import json
+from pathlib import Path
+
+import pytest
 
 from nomai.intents import (
     Expected,
@@ -16,6 +19,7 @@ from nomai.intents import (
     Trigger,
     TriggerType,
     VerificationSuite,
+    after,
     aggregate_changed,
     aggregate_condition,
     all_,
@@ -141,6 +145,23 @@ class TestTrigger:
         restored = Trigger.from_dict(data)
         assert restored.type == original.type
         assert len(restored.children) == len(original.children)
+
+    def test_after_trigger(self) -> None:
+        """After trigger wraps a child trigger with a tick delay."""
+        inner = collision("ball", "paddle")
+        t = after(inner, delay_ticks=5)
+        assert t.type == TriggerType.AFTER
+        assert t.params["delay_ticks"] == 5
+        assert len(t.children) == 1
+        assert t.children[0] == inner
+
+    def test_after_trigger_round_trip(self) -> None:
+        """After trigger survives to_dict/from_dict round trip."""
+        inner = collision("ball", "paddle")
+        t = after(inner, delay_ticks=5)
+        d = t.to_dict()
+        restored = Trigger.from_dict(d)
+        assert restored == t
 
     def test_frozen(self) -> None:
         """Trigger is immutable."""
@@ -745,3 +766,169 @@ class TestBreakoutIntents:
         parsed = json.loads(json_str)
         assert isinstance(parsed, dict)
         assert len(parsed["intents"]) == 5
+
+
+# ---------------------------------------------------------------------------
+# Intent spec validation
+# ---------------------------------------------------------------------------
+
+class TestIntentValidation:
+    """Tests for intent spec validation."""
+
+    def test_behavior_intent_missing_trigger_warns(self) -> None:
+        """Behavior intent without a trigger produces a validation warning."""
+        spec = IntentSpec(
+            name="no-trigger",
+            kind=IntentKind.BEHAVIOR,
+            description="Missing trigger",
+            expected=component_changed("ball", "velocity"),
+        )
+        warnings = spec.validate()
+        assert any("trigger" in w.lower() for w in warnings)
+
+    def test_behavior_intent_missing_expected_warns(self) -> None:
+        """Behavior intent without expected produces a validation warning."""
+        spec = IntentSpec(
+            name="no-expected",
+            kind=IntentKind.BEHAVIOR,
+            description="Missing expected",
+            trigger=collision("a", "b"),
+        )
+        warnings = spec.validate()
+        assert any("expected" in w.lower() for w in warnings)
+
+    def test_metric_intent_missing_range_warns(self) -> None:
+        """Metric intent without range produces a validation warning."""
+        spec = IntentSpec(
+            name="no-range",
+            kind=IntentKind.METRIC,
+            description="Missing range",
+            metric_entity="ball",
+            metric_component="velocity",
+            metric_field="speed",
+        )
+        warnings = spec.validate()
+        assert any("range" in w.lower() for w in warnings)
+
+    def test_metric_intent_inverted_range_warns(self) -> None:
+        """Metric intent with min > max produces a validation warning."""
+        spec = IntentSpec(
+            name="bad-range",
+            kind=IntentKind.METRIC,
+            description="Inverted range",
+            metric_entity="ball",
+            metric_component="velocity",
+            metric_field="speed",
+            metric_range=(100.0, 0.0),
+        )
+        warnings = spec.validate()
+        assert any("range" in w.lower() for w in warnings)
+
+    def test_entity_intent_missing_role_warns(self) -> None:
+        """Entity intent without role produces a validation warning."""
+        spec = IntentSpec(
+            name="no-role",
+            kind=IntentKind.ENTITY,
+            description="Missing role",
+        )
+        warnings = spec.validate()
+        assert any("role" in w.lower() for w in warnings)
+
+    def test_invariant_intent_missing_condition_warns(self) -> None:
+        """Invariant intent without condition produces a validation warning."""
+        spec = IntentSpec(
+            name="no-cond",
+            kind=IntentKind.INVARIANT,
+            description="Missing condition",
+        )
+        warnings = spec.validate()
+        assert any("condition" in w.lower() for w in warnings)
+
+    def test_valid_behavior_intent_no_warnings(self) -> None:
+        """Well-formed behavior intent produces no warnings."""
+        spec = IntentSpec(
+            name="valid",
+            kind=IntentKind.BEHAVIOR,
+            description="Valid behavior",
+            trigger=collision("ball", "paddle"),
+            expected=component_changed("ball", "velocity"),
+        )
+        warnings = spec.validate()
+        assert warnings == []
+
+    def test_suite_validate_aggregates_warnings(self) -> None:
+        """Suite validation collects warnings from all intents."""
+        bad1 = IntentSpec(name="a", kind=IntentKind.BEHAVIOR, description="a")
+        bad2 = IntentSpec(name="b", kind=IntentKind.INVARIANT, description="b")
+        suite = VerificationSuite(name="test", description="test", intents=[bad1, bad2])
+        warnings = suite.validate()
+        assert len(warnings) >= 2  # At least one per bad intent
+
+    def test_after_trigger_zero_delay_warns(self) -> None:
+        """After trigger with delay_ticks <= 0 produces a validation warning."""
+        spec = IntentSpec(
+            name="bad-after",
+            kind=IntentKind.BEHAVIOR,
+            description="Zero delay after",
+            trigger=after(collision("a", "b"), delay_ticks=0),
+            expected=component_changed("ball", "velocity"),
+        )
+        warnings = spec.validate()
+        assert any("delay" in w.lower() for w in warnings)
+
+    def test_empty_and_trigger_warns(self) -> None:
+        """AND trigger with no children produces a validation warning."""
+        spec = IntentSpec(
+            name="empty-and",
+            kind=IntentKind.BEHAVIOR,
+            description="Empty AND",
+            trigger=and_(),
+            expected=component_changed("ball", "velocity"),
+        )
+        warnings = spec.validate()
+        assert any("children" in w.lower() or "empty" in w.lower() for w in warnings)
+
+
+# ---------------------------------------------------------------------------
+# Suite file I/O
+# ---------------------------------------------------------------------------
+
+class TestSuiteFileIO:
+    """Tests for suite file save/load."""
+
+    def test_save_and_load_file(self, tmp_path: Path) -> None:
+        """Suite can be saved to and loaded from a JSON file."""
+        suite = VerificationSuite(
+            name="test-suite",
+            description="A test suite",
+            intents=[
+                IntentSpec(
+                    name="entity-test",
+                    kind=IntentKind.ENTITY,
+                    description="Entity exists",
+                    entity_type="character",
+                    entity_role="player",
+                ),
+            ],
+        )
+        filepath = tmp_path / "suite.json"
+        suite.save(filepath)
+        assert filepath.exists()
+
+        loaded = VerificationSuite.load(filepath)
+        assert loaded.name == suite.name
+        assert loaded.description == suite.description
+        assert len(loaded.intents) == 1
+        assert loaded.intents[0].name == "entity-test"
+
+    def test_load_nonexistent_file_raises(self, tmp_path: Path) -> None:
+        """Loading from a nonexistent file raises FileNotFoundError."""
+        with pytest.raises(FileNotFoundError):
+            VerificationSuite.load(tmp_path / "nope.json")
+
+    def test_save_creates_parent_dirs(self, tmp_path: Path) -> None:
+        """Save creates parent directories if they don't exist."""
+        suite = VerificationSuite(name="test", description="test")
+        filepath = tmp_path / "sub" / "dir" / "suite.json"
+        suite.save(filepath)
+        assert filepath.exists()
