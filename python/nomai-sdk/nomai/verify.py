@@ -801,6 +801,8 @@ class VerificationEngine:
         - ``"aggregate:<entity_type> <op> <value>"`` -- e.g.
           ``"aggregate:brick > 0"``
         - ``"entity_count > <N>"`` -- total entity count check
+        - ``"component_range:<entity>.<component>.<field> in [<min>, <max>]"``
+          -- checks that a component field stays within the given range
         - Free-form conditions are stored but pass trivially in the spike
           (full expression evaluation is post-MVP).
         """
@@ -813,6 +815,13 @@ class VerificationEngine:
         # Parse entity_count conditions
         if condition.startswith("entity_count"):
             return self._verify_entity_count_invariant(intent.name, condition, manifests)
+
+        # Parse component_range conditions
+        # Format: "component_range:<entity>.<component>.<field> in [<min>, <max>]"
+        if condition.startswith("component_range:"):
+            return self._verify_component_range_invariant(
+                intent.name, condition, manifests
+            )
 
         # For the spike, free-form conditions pass trivially with a warning
         logger.warning(
@@ -827,7 +836,8 @@ class VerificationEngine:
             suggestion=(
                 "This invariant uses a free-form condition string that "
                 "is not evaluated in the spike. Convert to a structured "
-                "condition (aggregate: or entity_count) for full evaluation."
+                "condition (aggregate:, entity_count, or component_range:) "
+                "for full evaluation."
             ),
         )
 
@@ -931,6 +941,89 @@ class VerificationEngine:
             intent_name=intent_name,
             passed=True,
         )
+
+    def _verify_component_range_invariant(
+        self,
+        intent_name: str,
+        condition: str,
+        manifests: list[TickManifest],
+    ) -> IntentResult:
+        """Evaluate a component_range invariant.
+
+        Format: ``"component_range:<entity>.<component>.<field> in [<min>, <max>]"``
+
+        Scans all tick manifests for component changes matching the
+        entity/component, extracts the field value from new_value, and
+        checks it falls within [min, max].
+        """
+        try:
+            rest = condition[len("component_range:"):]
+            path_part, range_part = rest.split(" in ")
+            path_parts = path_part.strip().split(".")
+            if len(path_parts) != 3:
+                return IntentResult(
+                    intent_name=intent_name,
+                    passed=False,
+                    failure_reason=(
+                        f"Malformed component_range: need entity.component.field, "
+                        f"got '{path_part.strip()}'"
+                    ),
+                )
+            entity_name, component, field_name = path_parts
+            range_trimmed = range_part.strip()
+            if not (range_trimmed.startswith("[") and range_trimmed.endswith("]")):
+                return IntentResult(
+                    intent_name=intent_name,
+                    passed=False,
+                    failure_reason=(
+                        f"Malformed component_range: range must be enclosed in "
+                        f"brackets, e.g. [0, 800], got '{range_trimmed}'"
+                    ),
+                )
+            range_str = range_trimmed[1:-1]
+            range_min, range_max = [float(x.strip()) for x in range_str.split(",")]
+            if range_min > range_max:
+                return IntentResult(
+                    intent_name=intent_name,
+                    passed=False,
+                    failure_reason=(
+                        f"Malformed component_range: min ({range_min}) > max "
+                        f"({range_max}) in '{condition}'"
+                    ),
+                )
+        except Exception as exc:
+            return IntentResult(
+                intent_name=intent_name,
+                passed=False,
+                failure_reason=f"Failed to parse component_range '{condition}': {exc}",
+            )
+
+        for manifest in manifests:
+            for change in manifest.component_changes:
+                if change.component_type_name != component:
+                    continue
+                if not self._matches_entity(change, entity_name):
+                    continue
+                value = self._extract_field_value(change.new_value, field_name)
+                if not isinstance(value, (int, float)):
+                    continue
+                if value < range_min or value > range_max:
+                    return IntentResult(
+                        intent_name=intent_name,
+                        passed=False,
+                        trigger_tick=manifest.tick,
+                        failure_reason=(
+                            f"Entity '{entity_name}' {component}.{field_name} = {value} "
+                            f"out of range [{range_min}, {range_max}] at tick {manifest.tick}"
+                        ),
+                        evidence=[change],
+                        suggestion=(
+                            f"Clamp '{entity_name}' {component}.{field_name} "
+                            f"to stay within [{range_min}, {range_max}]."
+                        ),
+                    )
+
+        return IntentResult(intent_name=intent_name, passed=True)
 
     # -- Trigger evaluation -------------------------------------------------
 

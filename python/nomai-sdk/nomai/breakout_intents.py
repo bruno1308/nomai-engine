@@ -24,8 +24,8 @@ the implemented DSL in several ways:
 - **Wildcard/count:** v8 uses ``"brick_*"`` and ``min_count=20``; the
   DSL does not support wildcards or count constraints on entity intents.
 - **Bounds invariants:** v8 uses free-form position expressions; the
-  verification engine only evaluates ``aggregate:`` and ``entity_count``
-  formats, so bounds use ``entity_count >= 0`` as an evaluable proxy.
+  verification engine supports ``component_range:`` conditions for
+  checking that component fields stay within numeric bounds.
 """
 
 from __future__ import annotations
@@ -58,10 +58,9 @@ def build_breakout_suite() -> VerificationSuite:
     - 2 metric intents (ball speed x, ball speed y)
     - 2 invariant intents (ball in bounds, paddle in bounds)
 
-    All invariant conditions use evaluable formats (``aggregate:`` or
-    ``entity_count``) where possible.  Bounds invariants use
-    ``entity_count >= 0`` as an evaluable proxy because position-range
-    evaluation is post-MVP.
+    All invariant conditions use evaluable formats (``aggregate:``,
+    ``entity_count``, or ``component_range:``) where possible.  Bounds
+    invariants use ``component_range:`` for real position-range checks.
     """
     return VerificationSuite(
         name="breakout_verification",
@@ -279,11 +278,10 @@ def _ball_in_bounds() -> IntentSpec:
         name="ball_in_bounds",
         kind=IntentKind.INVARIANT,
         description=(
-            "Ball position must stay within game bounds "
-            "(0-800 x, 0-600 y) every tick. Uses entity_count >= 0 "
-            "as evaluable proxy; full position-range check is post-MVP."
+            "Ball position must stay within game bounds (0-800 x) "
+            "every tick."
         ),
-        condition="entity_count >= 0",
+        condition="component_range:ball.position.x in [0, 800]",
     )
 
 
@@ -293,8 +291,7 @@ def _paddle_in_bounds() -> IntentSpec:
         kind=IntentKind.INVARIANT,
         description=(
             "Paddle position must stay within game bounds "
-            "(0-800 x) every tick. Uses entity_count >= 0 "
-            "as evaluable proxy; full position-range check is post-MVP."
+            "(0-800 x) every tick."
         ),
-        condition="entity_count >= 0",
+        condition="component_range:paddle.position.x in [0, 800]",
     )

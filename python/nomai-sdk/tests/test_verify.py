@@ -1205,6 +1205,177 @@ class TestInvariantVerification:
         assert not report.all_passed
         assert report.results[0].trigger_tick == 1
 
+    def test_component_range_invariant_holds(self) -> None:
+        """Component range invariant holds -- passes."""
+        # Arrange
+        engine = VerificationEngine()
+        intent = IntentSpec(
+            name="ball_x_in_bounds",
+            kind=IntentKind.INVARIANT,
+            description="Ball x position must stay in [0, 800]",
+            condition="component_range:ball.position.x in [0, 800]",
+        )
+        suite = VerificationSuite(name="test", description="test", intents=[intent])
+        manifests = [
+            _make_manifest(tick=0, changes=[
+                _make_change(
+                    component="position",
+                    new_value={"x": 400.0, "y": 300.0},
+                    entity_id=1,
+                    reason_detail="ball",
+                ),
+            ]),
+            _make_manifest(tick=1, changes=[
+                _make_change(
+                    component="position",
+                    new_value={"x": 100.0, "y": 200.0},
+                    entity_id=1,
+                    reason_detail="ball",
+                ),
+            ]),
+        ]
+
+        # Act
+        report = engine.verify(suite, manifests)
+
+        # Assert
+        assert report.all_passed
+
+    def test_component_range_invariant_violated(self) -> None:
+        """Component range invariant violated -- fails with correct tick."""
+        # Arrange
+        engine = VerificationEngine()
+        intent = IntentSpec(
+            name="paddle_x_in_bounds",
+            kind=IntentKind.INVARIANT,
+            description="Paddle x must stay in [0, 800]",
+            condition="component_range:paddle.position.x in [0, 800]",
+        )
+        suite = VerificationSuite(name="test", description="test", intents=[intent])
+        manifests = [
+            _make_manifest(tick=0, changes=[
+                _make_change(
+                    component="position",
+                    new_value={"x": 400.0, "y": 300.0},
+                    entity_id=1,
+                    reason_detail="paddle",
+                ),
+            ]),
+            _make_manifest(tick=1, changes=[
+                _make_change(
+                    component="position",
+                    new_value={"x": -50.0, "y": 300.0},
+                    entity_id=1,
+                    reason_detail="paddle",
+                ),
+            ]),
+        ]
+
+        # Act
+        report = engine.verify(suite, manifests)
+
+        # Assert
+        assert not report.all_passed
+        result = [r for r in report.results if not r.passed][0]
+        assert "paddle_x_in_bounds" in result.intent_name
+        assert "-50" in result.failure_reason
+
+    def test_component_range_malformed_fails(self) -> None:
+        """Malformed component_range condition fails with parse error."""
+        # Arrange
+        engine = VerificationEngine()
+        intent = IntentSpec(
+            name="bad_range",
+            kind=IntentKind.INVARIANT,
+            description="Bad format",
+            condition="component_range:bad_format",
+        )
+        suite = VerificationSuite(name="test", description="test", intents=[intent])
+
+        # Act
+        report = engine.verify(suite, [_make_manifest(tick=0)])
+
+        # Assert
+        assert not report.all_passed
+        result = [r for r in report.results if not r.passed][0]
+        assert "parse" in result.failure_reason.lower() or "malformed" in result.failure_reason.lower()
+
+    def test_component_range_boundary_value_passes(self) -> None:
+        """Value exactly at the boundary should pass."""
+        # Arrange
+        engine = VerificationEngine()
+        intent = IntentSpec(
+            name="ball_at_boundary",
+            kind=IntentKind.INVARIANT,
+            description="Ball x at exact boundary",
+            condition="component_range:ball.position.x in [0, 800]",
+        )
+        suite = VerificationSuite(name="test", description="test", intents=[intent])
+        manifests = [
+            _make_manifest(tick=0, changes=[
+                _make_change(
+                    component="position",
+                    new_value={"x": 0.0, "y": 300.0},
+                    entity_id=1,
+                    reason_detail="ball",
+                ),
+            ]),
+            _make_manifest(tick=1, changes=[
+                _make_change(
+                    component="position",
+                    new_value={"x": 800.0, "y": 300.0},
+                    entity_id=1,
+                    reason_detail="ball",
+                ),
+            ]),
+        ]
+
+        # Act
+        report = engine.verify(suite, manifests)
+
+        # Assert
+        assert report.all_passed
+
+    def test_component_range_missing_brackets_fails(self) -> None:
+        """Range without brackets should fail with a clear error."""
+        # Arrange
+        engine = VerificationEngine()
+        intent = IntentSpec(
+            name="no_brackets",
+            kind=IntentKind.INVARIANT,
+            description="Missing brackets",
+            condition="component_range:ball.position.x in 0, 800",
+        )
+        suite = VerificationSuite(name="test", description="test", intents=[intent])
+
+        # Act
+        report = engine.verify(suite, [_make_manifest(tick=0)])
+
+        # Assert
+        assert not report.all_passed
+        result = [r for r in report.results if not r.passed][0]
+        assert "brackets" in result.failure_reason.lower()
+
+    def test_component_range_inverted_range_fails(self) -> None:
+        """Range with min > max should fail at parse time."""
+        # Arrange
+        engine = VerificationEngine()
+        intent = IntentSpec(
+            name="inverted",
+            kind=IntentKind.INVARIANT,
+            description="Inverted range",
+            condition="component_range:ball.position.x in [800, 0]",
+        )
+        suite = VerificationSuite(name="test", description="test", intents=[intent])
+
+        # Act
+        report = engine.verify(suite, [_make_manifest(tick=0)])
+
+        # Assert
+        assert not report.all_passed
+        result = [r for r in report.results if not r.passed][0]
+        assert "min" in result.failure_reason.lower()
+
     def test_freeform_invariant_passes_with_warning(self) -> None:
         """Free-form invariant passes trivially in the spike."""
         # Arrange
