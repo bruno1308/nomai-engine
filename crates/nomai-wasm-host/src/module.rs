@@ -280,6 +280,58 @@ impl WasmModule {
         &self.instance
     }
 
+    /// Replace the current WASM module with new bytes at a tick boundary.
+    ///
+    /// Since all game state lives in the ECS (not in WASM memory), no state
+    /// migration is needed. The new module is compiled, validated (must export
+    /// `tick()`), and instantiated using the existing store and engine.
+    ///
+    /// The [`HostState`] inside the store is preserved across swaps -- commands,
+    /// events, tick metadata, and world snapshots all survive. Only the WASM
+    /// instance (and its linear memory / globals) is replaced.
+    ///
+    /// # Errors
+    ///
+    /// - [`WasmError::CompileError`] if the new bytes are invalid WASM/WAT.
+    /// - [`WasmError::MissingExport`] if the new module lacks a `tick()` export.
+    /// - [`WasmError::Runtime`] if instantiation fails.
+    ///
+    /// On failure, the original module instance remains intact and functional.
+    pub fn swap(&mut self, new_bytes: &[u8]) -> Result<(), WasmError> {
+        let start = std::time::Instant::now();
+
+        // Compile new module using the existing engine from the store.
+        let engine = self.store.engine().clone();
+        let module = Module::new(&engine, new_bytes)
+            .map_err(|e| WasmError::CompileError(format!("{e}")))?;
+
+        // Validate tick export exists before instantiation.
+        let has_tick = module.exports().any(|export| export.name() == "tick");
+        if !has_tick {
+            return Err(WasmError::MissingExport {
+                name: "tick".to_owned(),
+            });
+        }
+
+        // Create new linker with host API.
+        let mut linker = Linker::new(&engine);
+        register_host_api(&mut linker)
+            .map_err(|e| WasmError::Runtime(format!("failed to register host API: {e}")))?;
+
+        // Instantiate new module using existing store (preserves HostState).
+        let instance = linker.instantiate(&mut self.store, &module).map_err(|e| {
+            WasmError::Runtime(format!("{e}"))
+        })?;
+
+        // Replace instance.
+        self.instance = instance;
+
+        let elapsed = start.elapsed();
+        tracing::info!(elapsed_ms = elapsed.as_millis(), "WASM module hot-swapped");
+
+        Ok(())
+    }
+
     // -- Internal helpers ---------------------------------------------------
 
     /// Reset fuel to the configured per-tick budget.

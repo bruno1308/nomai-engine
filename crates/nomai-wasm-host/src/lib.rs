@@ -249,6 +249,96 @@ mod tests {
             config.fuel_per_tick
         );
     }
+
+    // -- B3 Hot-Swap Tests -------------------------------------------------
+
+    #[test]
+    fn hot_swap_changes_behavior() {
+        let config = WasmConfig::default();
+        let v1 = fixture_bytes("counter.wat");
+        let v2 = fixture_bytes("counter_v2.wat");
+
+        let mut module = WasmModule::from_bytes(&config, &v1).unwrap();
+
+        // Run v1: increments by 1
+        module.call_tick().unwrap();
+        let count_v1 = module.call_i32_export("get_count").unwrap();
+        assert_eq!(count_v1, 1, "v1 should increment by 1");
+
+        // Swap to v2
+        module.swap(&v2).unwrap();
+
+        // Run v2: increments by 10 (counter resets since WASM memory is replaced)
+        module.call_tick().unwrap();
+        let count_v2 = module.call_i32_export("get_count").unwrap();
+        assert_eq!(
+            count_v2, 10,
+            "v2 should increment by 10 from 0 (WASM state resets on swap)"
+        );
+    }
+
+    #[test]
+    fn hot_swap_validates_tick_export() {
+        let config = WasmConfig::default();
+        let v1 = fixture_bytes("noop.wat");
+
+        let mut module = WasmModule::from_bytes(&config, &v1).unwrap();
+
+        // Try to swap with a module that has no tick export
+        let bad = b"(module (func (export \"not_tick\")))";
+        let result = module.swap(bad);
+        assert!(result.is_err(), "swap with no tick() should fail");
+        assert!(
+            matches!(result.unwrap_err(), WasmError::MissingExport { ref name } if name == "tick"),
+            "should be MissingExport for 'tick'"
+        );
+
+        // Original module should still work
+        let fuel = module.call_tick().unwrap();
+        assert!(fuel > 0, "original module should still work after failed swap");
+    }
+
+    #[test]
+    fn hot_swap_completes_under_100ms() {
+        let config = WasmConfig::default();
+        let v1 = fixture_bytes("noop.wat");
+        let v2 = fixture_bytes("counter.wat");
+
+        let mut module = WasmModule::from_bytes(&config, &v1).unwrap();
+
+        let start = std::time::Instant::now();
+        module.swap(&v2).unwrap();
+        let elapsed = start.elapsed();
+
+        assert!(
+            elapsed.as_millis() < 100,
+            "hot-swap should take <100ms, took {}ms",
+            elapsed.as_millis()
+        );
+    }
+
+    #[test]
+    fn hot_swap_preserves_host_state() {
+        let config = WasmConfig::default();
+        let v1 = fixture_bytes("noop.wat");
+        let v2 = fixture_bytes("counter.wat");
+
+        let mut module = WasmModule::from_bytes(&config, &v1).unwrap();
+
+        // Set up host state
+        module.host_state_mut().begin_tick(42, 0.7);
+        module.host_state_mut().entity_count = 99;
+
+        // Swap
+        module.swap(&v2).unwrap();
+
+        // Host state should be preserved (it lives in the Store, not the Instance)
+        assert_eq!(module.host_state().tick, 42, "tick should be preserved");
+        assert_eq!(
+            module.host_state().entity_count, 99,
+            "entity_count should be preserved"
+        );
+    }
 }
 
 // ---------------------------------------------------------------------------
