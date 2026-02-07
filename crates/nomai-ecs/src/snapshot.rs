@@ -208,6 +208,63 @@ impl World {
             }
         }
 
+        // 0c. Validate free list entries only reference dead slots and are unique.
+        {
+            let mut seen = std::collections::HashSet::new();
+            for &free_idx in &snapshot.allocator.free_indices {
+                if snapshot.allocator.alive[free_idx as usize] {
+                    return Err(EcsError::ComponentDeserializationError {
+                        component: "__allocator".to_owned(),
+                        details: format!(
+                            "free list contains index {} which is marked alive",
+                            free_idx
+                        ),
+                    });
+                }
+                if !seen.insert(free_idx) {
+                    return Err(EcsError::ComponentDeserializationError {
+                        component: "__allocator".to_owned(),
+                        details: format!(
+                            "free list contains duplicate index {}",
+                            free_idx
+                        ),
+                    });
+                }
+            }
+        }
+
+        // 0d. Validate alive flags match snapshot entities: every allocator
+        //     slot marked alive must have a corresponding entity in the
+        //     snapshot, and every snapshot entity must be in an alive slot.
+        {
+            let entity_indices: std::collections::HashSet<u32> = snapshot
+                .entities
+                .iter()
+                .map(|e| e.entity_id.index())
+                .collect();
+            for (idx, &is_alive) in snapshot.allocator.alive.iter().enumerate() {
+                let has_entity = entity_indices.contains(&(idx as u32));
+                if is_alive && !has_entity {
+                    return Err(EcsError::ComponentDeserializationError {
+                        component: "__allocator".to_owned(),
+                        details: format!(
+                            "allocator slot {} is marked alive but has no entity in snapshot",
+                            idx
+                        ),
+                    });
+                }
+                if !is_alive && has_entity {
+                    return Err(EcsError::ComponentDeserializationError {
+                        component: "__allocator".to_owned(),
+                        details: format!(
+                            "allocator slot {} is marked dead but has entity data in snapshot",
+                            idx
+                        ),
+                    });
+                }
+            }
+        }
+
         // 1. Clear all existing entity data.
         //    Drop all entities in all archetypes.
         for archetype in &mut self.archetypes {

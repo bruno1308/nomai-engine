@@ -475,3 +475,104 @@ fn snapshot_roundtrip_then_query_works() {
         assert!(p >= 100.0, "position should have been incremented by 100");
     }
 }
+
+// ---------------------------------------------------------------------------
+// Malformed snapshot validation tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn restore_rejects_free_list_with_alive_index() {
+    let mut world = setup_world();
+    let _e = world.spawn_with(Position { x: 1.0, y: 1.0 });
+
+    let mut snapshot = world.capture_snapshot();
+
+    // Corrupt: put the alive index (0) into the free list.
+    snapshot.allocator.free_indices.push(0);
+
+    let mut world2 = setup_world();
+    let result = world2.restore_from_snapshot(&snapshot);
+    assert!(
+        result.is_err(),
+        "restore should reject free list entry referencing alive slot"
+    );
+    let err_msg = format!("{}", result.unwrap_err());
+    assert!(
+        err_msg.contains("marked alive"),
+        "error should mention alive conflict, got: {err_msg}"
+    );
+}
+
+#[test]
+fn restore_rejects_free_list_with_duplicates() {
+    let mut world = setup_world();
+    let e1 = world.spawn_with(Position { x: 1.0, y: 1.0 });
+    let _e2 = world.spawn_with(Position { x: 2.0, y: 2.0 });
+
+    // Despawn e1 to get index 0 into the free list.
+    world.despawn(e1).unwrap();
+
+    let mut snapshot = world.capture_snapshot();
+
+    // Corrupt: duplicate the free list entry.
+    snapshot.allocator.free_indices.push(0);
+
+    let mut world2 = setup_world();
+    let result = world2.restore_from_snapshot(&snapshot);
+    assert!(
+        result.is_err(),
+        "restore should reject duplicate free list entries"
+    );
+    let err_msg = format!("{}", result.unwrap_err());
+    assert!(
+        err_msg.contains("duplicate"),
+        "error should mention duplicate, got: {err_msg}"
+    );
+}
+
+#[test]
+fn restore_rejects_alive_slot_without_entity() {
+    let mut world = setup_world();
+    let _e = world.spawn_with(Position { x: 1.0, y: 1.0 });
+
+    let mut snapshot = world.capture_snapshot();
+
+    // Corrupt: remove entity data but keep alive flag true.
+    snapshot.entities.clear();
+
+    let mut world2 = setup_world();
+    let result = world2.restore_from_snapshot(&snapshot);
+    assert!(
+        result.is_err(),
+        "restore should reject alive slot with no entity data"
+    );
+    let err_msg = format!("{}", result.unwrap_err());
+    assert!(
+        err_msg.contains("no entity in snapshot"),
+        "error should mention missing entity, got: {err_msg}"
+    );
+}
+
+#[test]
+fn restore_rejects_dead_slot_with_entity_data() {
+    let mut world = setup_world();
+    let _e = world.spawn_with(Position { x: 1.0, y: 1.0 });
+
+    let mut snapshot = world.capture_snapshot();
+
+    // Corrupt: mark the slot as dead but keep the entity data.
+    snapshot.allocator.alive[0] = false;
+    snapshot.allocator.free_indices.push(0);
+
+    let mut world2 = setup_world();
+    let result = world2.restore_from_snapshot(&snapshot);
+    assert!(
+        result.is_err(),
+        "restore should reject dead slot with entity data"
+    );
+    let err_msg = format!("{}", result.unwrap_err());
+    assert!(
+        err_msg.contains("marked dead"),
+        "error should mention dead slot with data, got: {err_msg}"
+    );
+}
