@@ -41,11 +41,14 @@ from nomai.intents import (
     IntentKind,
     IntentSpec,
     VerificationSuite,
+    collision,
     entity_despawned,
     event_occurred,
     tick_reached,
+    value_relation,
 )
 from nomai.manifest import EntityEntry, TickManifest
+from nomai.physics_sanity import PhysicsEntityInfo
 from nomai.verify import RegressionTest, VerificationEngine, VerificationReport
 
 logging.basicConfig(
@@ -92,16 +95,19 @@ def build_demo_suite() -> VerificationSuite:
     """Build a verification suite adapted for the current engine.
 
     Uses the canonical breakout entity/metric/invariant intents from
-    ``build_breakout_suite()``, plus demo-adapted behavior intents that
-    use ``tick_reached`` triggers (since the physics collision events
-    contain entity IDs, not role names, collision triggers don't match
-    yet -- full role-enriched collision events are post-MVP).
+    ``build_breakout_suite()``, plus demo-adapted behavior intents.
+    Tick-based triggers (``tick_reached``) are used for brick destruction
+    since the mock engine's collision events use entity IDs, not role
+    names. The ``ball_reflects_on_brick_hit`` intent uses a
+    ``collision("ball", "brick")`` trigger, which matches because the
+    mock engine enriches event ``reason_detail`` with role names.
 
-    The key behavior intent for thesis demonstration:
+    The key behavior intents for thesis demonstration:
     ``brick_destroyed_after_physics`` checks that at least one brick
     entity is despawned after the ball has had time to reach the bricks.
-    This passes in the fixed run (Python collision response) and fails
-    in the buggy run (no collision response).
+    ``ball_reflects_on_brick_hit`` checks that the ball's velocity
+    flips sign after a brick collision. Both pass in the fixed run and
+    fail in the buggy run.
     """
     canonical = build_breakout_suite()
     # Keep entity, metric, and invariant intents from canonical suite
@@ -130,6 +136,19 @@ def build_demo_suite() -> VerificationSuite:
         ),
         trigger=event_occurred("collision"),
         expected=entity_despawned("brick"),
+        timeout_ticks=200,
+    ))
+    # Physics response: ball must reflect on brick collision
+    adapted.append(IntentSpec(
+        name="ball_reflects_on_brick_hit",
+        kind=IntentKind.BEHAVIOR,
+        description=(
+            "When the ball collides with a brick, its vertical velocity "
+            "must flip sign (bounce). This is the key physics-response "
+            "check that would have caught the deferred-unregister bug."
+        ),
+        trigger=collision("ball", "brick"),
+        expected=value_relation("ball", "velocity", "dy", "sign_flipped"),
         timeout_ticks=200,
     ))
     return VerificationSuite(
@@ -270,6 +289,56 @@ def build_entity_index_dict(
     return result
 
 
+def build_physics_registry(
+    roles: dict[str, list[int]],
+) -> dict[int, PhysicsEntityInfo]:
+    """Build physics entity registry for Layer 0 sanity checks.
+
+    Maps entity IDs to their physics configuration so the sanity
+    checker can automatically verify collision responses.
+    """
+    registry: dict[int, PhysicsEntityInfo] = {}
+
+    # Ball: dynamic, restitution 1.0
+    for eid in roles.get("ball", []):
+        registry[eid] = PhysicsEntityInfo(
+            entity_id=eid,
+            body_type="dynamic",
+            restitution=1.0,
+            collider_shape="circle",
+        )
+
+    # Paddle: kinematic, restitution 1.0
+    for eid in roles.get("paddle", []):
+        registry[eid] = PhysicsEntityInfo(
+            entity_id=eid,
+            body_type="kinematic",
+            restitution=1.0,
+            collider_shape="box",
+        )
+
+    # Bricks: static, restitution 1.0
+    for eid in roles.get("brick", []):
+        registry[eid] = PhysicsEntityInfo(
+            entity_id=eid,
+            body_type="static",
+            restitution=1.0,
+            collider_shape="box",
+        )
+
+    # Walls: static, restitution 1.0
+    for role_prefix in ("wall_top", "wall_left", "wall_right"):
+        for eid in roles.get(role_prefix, []):
+            registry[eid] = PhysicsEntityInfo(
+                entity_id=eid,
+                body_type="static",
+                restitution=1.0,
+                collider_shape="box",
+            )
+
+    return registry
+
+
 # ---------------------------------------------------------------------------
 # Phase 1: Buggy run
 # ---------------------------------------------------------------------------
@@ -300,7 +369,8 @@ def run_buggy() -> tuple[VerificationReport, list[TickManifest]]:
     suite = build_demo_suite()
     verifier = VerificationEngine()
     entity_dict = build_entity_index_dict(engine.entity_index())
-    report = verifier.verify(suite, manifests, entity_dict)
+    physics_reg = build_physics_registry(roles)
+    report = verifier.verify(suite, manifests, entity_dict, physics_registry=physics_reg)
 
     print(f"\n  --- Verification Result ---")
     print(report.summary())
@@ -364,7 +434,8 @@ def run_fixed() -> tuple[VerificationReport, list[TickManifest], dict[str, dict[
     suite = build_demo_suite()
     verifier = VerificationEngine()
     entity_dict = build_entity_index_dict(engine.entity_index())
-    report = verifier.verify(suite, manifests, entity_dict)
+    physics_reg = build_physics_registry(roles)
+    report = verifier.verify(suite, manifests, entity_dict, physics_registry=physics_reg)
 
     print(f"\n  --- Verification Result ---")
     print(report.summary())

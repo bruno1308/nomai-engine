@@ -15,8 +15,8 @@ The v8 spec (Section 11) uses conceptual pseudo-code that differs from
 the implemented DSL in several ways:
 
 - **Bounce semantics:** v8 models ``sign_flipped=True``; the DSL's
-  ``component_changed()`` only supports field existence and exact value
-  checks, so bounce intents verify that velocity changed (not sign flip).
+  ``value_relation()`` now supports ``"sign_flipped"`` and
+  ``"magnitude_preserved"`` relations for proper bounce verification.
 - **Metric magnitude:** v8 uses ``measurement="magnitude"``; the DSL
   works at the field level, so speed is checked per-axis (dx, dy).
 - **Entity types:** v8 uses ``"controller"`` for paddle; this codebase
@@ -37,11 +37,13 @@ from nomai.intents import (
     aggregate_changed,
     aggregate_condition,
     all_,
+    any_,
     collision,
     component_changed,
     component_condition,
     entity_despawned,
     in_state,
+    value_relation,
 )
 
 
@@ -51,7 +53,8 @@ def build_breakout_suite() -> VerificationSuite:
     Returns a :class:`VerificationSuite` containing:
 
     - 3 entity intents (paddle, ball, bricks)
-    - 4 behavior intents (wall bounce, paddle bounce, brick destroy, game won)
+    - 6 behavior intents (wall bounce, paddle bounce, brick destroy,
+      ball-brick reflection, ball-wall reflection, game won)
     - 2 metric intents (ball speed x, ball speed y)
     - 2 invariant intents (ball in bounds, paddle in bounds)
 
@@ -72,10 +75,12 @@ def build_breakout_suite() -> VerificationSuite:
             _paddle_exists(),
             _ball_exists(),
             _bricks_exist(),
-            # -- Behavior intents (4) ----------------------------------
+            # -- Behavior intents (6) ----------------------------------
             _ball_bounces_off_walls(),
             _ball_bounces_off_paddle(),
             _brick_destroyed_on_hit(),
+            _ball_reflects_on_brick_collision(),
+            _ball_reflects_on_wall_collision(),
             _game_won_when_no_bricks(),
             # -- Metric intents (2) ------------------------------------
             _ball_speed_x_bounded(),
@@ -203,6 +208,39 @@ def _game_won_when_no_bricks() -> IntentSpec:
         trigger=aggregate_condition("brick", "==", 0),
         expected=in_state("game", "game_state", "won"),
         timeout_ticks=10000,
+    )
+
+
+def _ball_reflects_on_brick_collision() -> IntentSpec:
+    return IntentSpec(
+        name="ball_reflects_on_brick_collision",
+        kind=IntentKind.BEHAVIOR,
+        description=(
+            "When the ball collides with a brick, the ball's velocity.dy "
+            "must flip sign (bounce). This is the physics-response check "
+            "that validates correct collision resolution."
+        ),
+        trigger=collision("ball", "brick"),
+        expected=value_relation("ball", "velocity", "dy", "sign_flipped"),
+        timeout_ticks=600,
+    )
+
+
+def _ball_reflects_on_wall_collision() -> IntentSpec:
+    return IntentSpec(
+        name="ball_reflects_on_wall_collision",
+        kind=IntentKind.BEHAVIOR,
+        description=(
+            "When the ball collides with a wall, at least one velocity "
+            "component must flip sign (bounce). Side walls flip dx, "
+            "top/bottom walls flip dy."
+        ),
+        trigger=collision("ball", "wall"),
+        expected=any_(
+            value_relation("ball", "velocity", "dx", "sign_flipped"),
+            value_relation("ball", "velocity", "dy", "sign_flipped"),
+        ),
+        timeout_ticks=600,
     )
 
 

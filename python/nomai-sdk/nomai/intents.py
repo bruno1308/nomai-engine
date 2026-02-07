@@ -201,6 +201,7 @@ class ExpectedType(Enum):
     AGGREGATE_CHANGED = "aggregate_changed"
     IN_STATE = "in_state"
     EVENT_EMITTED = "event_emitted"
+    VALUE_RELATION = "value_relation"
     ALL = "all"
     ANY = "any"
 
@@ -325,6 +326,43 @@ def event_emitted(
     return Expected(
         type=ExpectedType.EVENT_EMITTED,
         params=params,
+    )
+
+
+def value_relation(
+    entity: str,
+    component: str,
+    field_name: str,
+    relation: str,
+    tolerance: float = 0.1,
+) -> Expected:
+    """Expect a relational assertion between old and new component values.
+
+    Relations:
+    - ``"sign_flipped"``: old_value and new_value have opposite signs
+    - ``"magnitude_preserved"``: ``abs(new) ~= abs(old)`` within tolerance
+    - ``"increased"``: ``new > old``
+    - ``"decreased"``: ``new < old``
+    - ``"changed_by_more_than"``: ``abs(new - old) > tolerance``
+
+    Args:
+        entity: Name/role of the entity to check.
+        component: Component type name (e.g. ``"velocity"``).
+        field_name: Field within the component (e.g. ``"dy"``).
+        relation: One of the relation strings above.
+        tolerance: Fractional tolerance for ``"magnitude_preserved"``
+            (default 0.1 = 10%), or absolute threshold for
+            ``"changed_by_more_than"``.
+    """
+    return Expected(
+        type=ExpectedType.VALUE_RELATION,
+        params={
+            "entity": entity,
+            "component": component,
+            "field": field_name,
+            "relation": relation,
+            "tolerance": tolerance,
+        },
     )
 
 

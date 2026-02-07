@@ -27,9 +27,9 @@ class TestBuildBreakoutSuite:
         assert len(suite.description) > 0
 
     def test_total_intent_count(self) -> None:
-        """Suite contains exactly 11 intents."""
+        """Suite contains exactly 13 intents."""
         suite = build_breakout_suite()
-        assert len(suite.intents) == 11
+        assert len(suite.intents) == 13
 
     def test_entity_intent_count(self) -> None:
         """Suite has exactly 3 entity intents."""
@@ -38,10 +38,10 @@ class TestBuildBreakoutSuite:
         assert len(entities) == 3
 
     def test_behavior_intent_count(self) -> None:
-        """Suite has exactly 4 behavior intents."""
+        """Suite has exactly 6 behavior intents."""
         suite = build_breakout_suite()
         behaviors = [i for i in suite.intents if i.kind == IntentKind.BEHAVIOR]
-        assert len(behaviors) == 4
+        assert len(behaviors) == 6
 
     def test_metric_intent_count(self) -> None:
         """Suite has exactly 2 metric intents."""
@@ -71,6 +71,8 @@ class TestBuildBreakoutSuite:
             "ball_bounces_off_walls",
             "ball_bounces_off_paddle",
             "brick_destroyed_on_hit",
+            "ball_reflects_on_brick_collision",
+            "ball_reflects_on_wall_collision",
             "game_won_when_no_bricks",
         }
 
@@ -172,7 +174,7 @@ class TestBuildBreakoutSuite:
         assert isinstance(parsed, dict)
         assert "name" in parsed
         assert "intents" in parsed
-        assert len(parsed["intents"]) == 11
+        assert len(parsed["intents"]) == 13
 
     def test_each_intent_has_description(self) -> None:
         """Every intent in the suite has a non-empty description."""

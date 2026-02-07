@@ -149,10 +149,15 @@ impl ApplicationHandler for BreakoutApp {
                 }
 
                 // Despawn destroyed bricks.
+                // Use deferred_unregister so rapier's solver can finish
+                // resolving the ball's bounce impulse before the collider
+                // is removed. The ECS entity is despawned immediately
+                // (for rendering), but the rapier body persists until the
+                // next physics step.
                 for brick_eid in bricks_to_destroy {
                     self.brick_ids.remove(&brick_eid.to_raw());
                     if let Some(physics) = self.tick_loop.physics_mut() {
-                        physics.unregister_entity(brick_eid);
+                        physics.deferred_unregister(brick_eid);
                     }
                     let _ = self.tick_loop.world_mut().despawn(brick_eid);
                 }

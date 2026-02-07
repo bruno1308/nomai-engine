@@ -891,11 +891,25 @@ class TestHardenedExpected:
     """Tests for hardened expected outcome matching."""
 
     def test_entity_despawned_checks_specific_entity(self) -> None:
-        """EntityDespawned checks for the specific entity in despawns list."""
-        manifest = _make_manifest(tick=1, despawns=[99])
+        """EntityDespawned matches when evidence links the despawn to the entity name."""
+        manifest = _make_manifest(
+            tick=1,
+            despawns=[99],
+            events=[_make_event(
+                "collision", "ball hit brick", involved=[1, 99],
+                tick=1, reason_detail="ball:brick",
+            )],
+        )
         engine = VerificationEngine()
         e = entity_despawned("brick")
         assert engine._check_expected(e, manifest)
+
+    def test_entity_despawned_rejects_unrelated_despawn(self) -> None:
+        """EntityDespawned fails when despawned entity has no link to the name."""
+        manifest = _make_manifest(tick=1, despawns=[99])
+        engine = VerificationEngine()
+        e = entity_despawned("brick")
+        assert not engine._check_expected(e, manifest)
 
     def test_entity_despawned_fails_when_no_despawns(self) -> None:
         """EntityDespawned fails when no entities are despawned."""
@@ -2058,8 +2072,15 @@ class TestCompositeExpected:
             intents=[intent],
         )
 
-        # Only despawn, no bounce event
-        m = _make_manifest(tick=0, despawns=[5])
+        # Despawn with event evidence linking entity 5 to "brick"
+        m = _make_manifest(
+            tick=0,
+            despawns=[5],
+            events=[_make_event(
+                "collision", "ball hit brick", involved=[1, 5],
+                tick=0, reason_detail="ball:brick",
+            )],
+        )
         manifests = [m]
 
         # Act

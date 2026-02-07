@@ -17,6 +17,10 @@ import logging
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from nomai.physics_sanity import PhysicsEntityInfo
 
 from nomai.intents import (
     Expected,
@@ -447,6 +451,7 @@ class VerificationEngine:
         suite: VerificationSuite,
         manifests: list[TickManifest],
         entity_index: dict[str, dict[str, str]] | None = None,
+        physics_registry: dict[int, PhysicsEntityInfo] | None = None,
     ) -> VerificationReport:
         """Verify all intents in a suite against the given manifests.
 
@@ -456,6 +461,10 @@ class VerificationEngine:
             entity_index: Optional mapping of entity name/role to metadata.
                 Keys are entity roles (e.g. ``"paddle"``), values are dicts
                 with keys like ``"entity_type"``, ``"role"``, ``"tier"``.
+            physics_registry: Optional mapping of entity ID to
+                :class:`~nomai.physics_sanity.PhysicsEntityInfo`. When
+                provided, automatic physics sanity checks run alongside
+                intent verification.
 
         Returns:
             A :class:`VerificationReport` with per-intent results.
@@ -482,6 +491,16 @@ class VerificationEngine:
                     failure_reason=f"Unknown intent kind: {intent.kind}",
                 )
             results.append(result)
+
+        # Run physics sanity checks if registry provided
+        if physics_registry is not None:
+            from nomai.physics_sanity import PhysicsSanityChecker
+
+            checker = PhysicsSanityChecker(physics_registry)
+            sanity_results = checker.check_collision_responses(manifests)
+            sanity_results.extend(checker.check_static_immobility(manifests))
+            sanity_results.extend(checker.check_no_tunneling(manifests))
+            results.extend(sanity_results)
 
         elapsed_ms = (time.monotonic() - start_time) * 1000.0
         passed_count = sum(1 for r in results if r.passed)
@@ -1021,26 +1040,73 @@ class VerificationEngine:
             component = str(expected.params.get("component", ""))
             field_name = expected.params.get("field")
             expected_value = expected.params.get("expected_value")
+            entity_name = expected.params.get("entity")
 
             for change in manifest.component_changes:
                 if change.component_type_name != component:
                     continue
-                # If a specific field is required, check the field exists in new_value
+                # Filter by entity name if specified
+                if entity_name and not self._matches_entity(change, str(entity_name)):
+                    continue
+                # If a specific field is required, check it exists and changed
                 if field_name is not None:
-                    value = self._extract_field_value(change.new_value, str(field_name))
-                    if value is None:
+                    new_val = self._extract_field_value(change.new_value, str(field_name))
+                    if new_val is None:
                         continue
-                    if expected_value is not None and value != expected_value:
+                    # Verify the value actually changed (old != new for this field)
+                    old_val = self._extract_field_value(change.old_value, str(field_name))
+                    if old_val is not None and old_val == new_val:
+                        continue
+                    if expected_value is not None and new_val != expected_value:
                         continue
                 elif expected_value is not None:
                     if change.new_value != expected_value:
+                        continue
+                else:
+                    # No field or expected_value: require old and new to differ
+                    if change.old_value is not None and change.old_value == change.new_value:
                         continue
                 return True
             return False
 
         if expected.type == ExpectedType.ENTITY_DESPAWNED:
-            # Simplified: check that entity_despawns is non-empty
-            return len(manifest.entity_despawns) > 0
+            entity_name = str(expected.params.get("entity", ""))
+            if not manifest.entity_despawns:
+                return False
+
+            # Try to match the entity name against evidence in the manifest.
+            # entity_despawns contains integer entity IDs; we correlate them
+            # with events and component changes that reference the entity name.
+            despawn_set = set(manifest.entity_despawns)
+
+            # Check events: if an event's description or reason_detail mentions
+            # the entity name AND involves a despawned entity, it's a match.
+            for event in manifest.events:
+                search_text = f"{event.description} {event.reason_detail}".lower()
+                if entity_name.lower() in search_text:
+                    if any(eid in despawn_set for eid in event.involved_entities):
+                        return True
+
+            # Check component changes on despawned entities for identity match.
+            for change in manifest.component_changes:
+                if change.entity_id not in despawn_set:
+                    continue
+                if change.component_type_name == "identity":
+                    if isinstance(change.new_value, dict):
+                        role = str(change.new_value.get("role", ""))
+                        etype = str(change.new_value.get("entity_type", ""))
+                        if entity_name.lower() in (role.lower(), etype.lower()):
+                            return True
+                # Also check reason_detail for entity name
+                if entity_name.lower() in change.reason_detail.lower():
+                    return True
+
+            # Fallback: check if the entity_id string matches the entity name
+            for eid in manifest.entity_despawns:
+                if str(eid) == entity_name:
+                    return True
+
+            return False
 
         if expected.type == ExpectedType.EVENT_EMITTED:
             event_type = str(expected.params.get("event_type", ""))
@@ -1064,6 +1130,47 @@ class VerificationEngine:
             for change in manifest.component_changes:
                 if change.component_type_name == component:
                     if change.new_value == state:
+                        return True
+            return False
+
+        if expected.type == ExpectedType.VALUE_RELATION:
+            entity_name = expected.params.get("entity")
+            component = str(expected.params.get("component", ""))
+            field_name = str(expected.params.get("field", ""))
+            relation = str(expected.params.get("relation", ""))
+            tolerance = float(expected.params.get("tolerance", 0.1))  # type: ignore[arg-type]
+
+            for change in manifest.component_changes:
+                if change.component_type_name != component:
+                    continue
+                # Filter by entity name if specified
+                if entity_name and not self._matches_entity(change, str(entity_name)):
+                    continue
+                old_val = self._extract_field_value(change.old_value, field_name)
+                new_val = self._extract_field_value(change.new_value, field_name)
+                if old_val is None or new_val is None:
+                    continue
+                if not isinstance(old_val, (int, float)) or not isinstance(new_val, (int, float)):
+                    continue
+
+                old_f = float(old_val)
+                new_f = float(new_val)
+
+                if relation == "sign_flipped":
+                    if old_f * new_f < 0:  # opposite signs, neither zero
+                        return True
+                elif relation == "magnitude_preserved":
+                    if abs(old_f) > 0:
+                        if abs(abs(new_f) - abs(old_f)) / abs(old_f) <= tolerance:
+                            return True
+                elif relation == "increased":
+                    if new_f > old_f:
+                        return True
+                elif relation == "decreased":
+                    if new_f < old_f:
+                        return True
+                elif relation == "changed_by_more_than":
+                    if abs(new_f - old_f) > tolerance:
                         return True
             return False
 
@@ -1112,6 +1219,35 @@ class VerificationEngine:
             return actual != expected
         logger.warning("String comparison with operator '%s' not supported", op)
         return False
+
+    @staticmethod
+    def _matches_entity(change: ComponentChange, entity_name: str) -> bool:
+        """Check if a component change belongs to the named entity.
+
+        Uses a dual strategy:
+        - If ``entity_name`` is numeric, matches against ``change.entity_id``.
+        - If ``entity_name`` appears in ``change.reason_detail``, matches.
+        - If neither can be checked (non-numeric name with generic
+          reason_detail), returns True (permissive -- avoids false negatives).
+        """
+        # Try numeric entity ID match
+        try:
+            return change.entity_id == int(entity_name)
+        except (ValueError, TypeError):
+            pass
+        # Try role/type match via reason_detail
+        detail = change.reason_detail.lower()
+        name_lower = entity_name.lower()
+        if name_lower in detail:
+            return True
+        # If reason_detail contains a colon-separated role format (e.g.
+        # "ball:brick"), we can check if the entity name is NOT present
+        # to reject mismatches.  Only reject when we have clear negative
+        # evidence.
+        if ":" in detail:
+            return False
+        # No evidence to filter on -- include the change (permissive).
+        return True
 
     def _extract_field_value(
         self,

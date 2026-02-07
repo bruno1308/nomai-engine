@@ -135,6 +135,11 @@ def _breakout_entity_index() -> dict[str, dict[str, str]]:
             "role": "brick",
             "tier": "Semantic",
         },
+        "wall": {
+            "entity_type": "boundary",
+            "role": "wall",
+            "tier": "Semantic",
+        },
     }
 
 
@@ -154,9 +159,18 @@ def _build_correct_gameplay_manifests() -> list[TickManifest]:
     # Tick 0: initial state
     manifests.append(_make_manifest(tick=0, aggregates=_aggregates(brick_count=20)))
 
-    # Tick 1: Ball hits wall -- position.x reaches 0, velocity.dx changes
+    # Tick 1: Ball hits wall -- collision event, velocity.dx flips sign
     manifests.append(_make_manifest(
         tick=1,
+        events=[
+            _make_event(
+                event_type="collision",
+                description="ball collides with wall",
+                involved=[1, 50],  # 50 = wall entity
+                tick=1,
+                reason_detail="ball:wall",
+            ),
+        ],
         changes=[
             _make_change(
                 entity_id=1,
@@ -290,7 +304,7 @@ class TestCorrectGameplayPasses:
         )
 
     def test_report_has_correct_intent_count(self) -> None:
-        """Report covers all 11 intents."""
+        """Report covers all 13 intents."""
         suite = build_breakout_suite()
         engine = VerificationEngine()
         manifests = _build_correct_gameplay_manifests()
@@ -298,8 +312,8 @@ class TestCorrectGameplayPasses:
 
         report = engine.verify(suite, manifests, entity_index)
 
-        assert report.total_intents == 11
-        assert report.passed == 11
+        assert report.total_intents == 13
+        assert report.passed == 13
         assert report.failed == 0
 
     def test_report_summary_is_nonempty(self) -> None:
@@ -532,7 +546,7 @@ class TestRegressionTestRoundTrip:
             report=report,
         )
         assert regression.name == "breakout-regression-v1"
-        assert regression.expected_pass_count == 11
+        assert regression.expected_pass_count == 13
         assert regression.expected_fail_count == 0
 
     def test_regression_save_and_load(self, tmp_path: Path) -> None:
@@ -570,8 +584,8 @@ class TestRegressionTestRoundTrip:
 
         replay_result = regression.replay(engine)
         assert replay_result.passed
-        # 8 = 11 total intents - 3 entity intents (excluded from replay suite)
-        assert replay_result.actual_passed == 8
+        # 10 = 13 total intents - 3 entity intents (excluded from replay suite)
+        assert replay_result.actual_passed == 10
         assert replay_result.actual_failed == 0
 
     def test_regression_replay_full_roundtrip(self, tmp_path: Path) -> None:
