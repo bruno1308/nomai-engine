@@ -341,8 +341,11 @@ impl PhysicsWorld {
 
     /// Read updated positions and velocities from rapier after a step.
     ///
-    /// Returns a list of `(EntityId, Position, Velocity)` for all dynamic bodies.
-    /// Static and kinematic bodies are not returned because they are ECS-driven.
+    /// Returns a list of `(EntityId, Position, Velocity)` for all **dynamic** bodies.
+    /// Static bodies are not returned (they never move). Kinematic bodies are
+    /// excluded here because their velocity is ECS-driven; use
+    /// [`read_kinematic_positions`](Self::read_kinematic_positions) to get their
+    /// rapier-integrated positions.
     ///
     /// The results are sorted by raw entity ID to ensure deterministic ordering
     /// regardless of rapier's internal iteration order.
@@ -371,6 +374,35 @@ impl PhysicsWorld {
         }
         // Sort by raw entity ID for deterministic output ordering.
         results.sort_by_key(|(eid, _, _)| eid.to_raw());
+        results
+    }
+
+    /// Read updated positions for kinematic bodies after a step.
+    ///
+    /// Kinematic velocity-based bodies have their position integrated by rapier
+    /// each step, but their velocity is set externally (ECS-driven). This method
+    /// returns only positions so that `run_physics_step` can emit position
+    /// commands without redundant velocity writes.
+    ///
+    /// The results are sorted by raw entity ID for deterministic ordering.
+    pub fn read_kinematic_positions(&self) -> Vec<(EntityId, Position)> {
+        let mut results = Vec::new();
+        for (&raw_id, &body_handle) in &self.entity_to_body {
+            if let Some(rb) = self.rigid_body_set.get(body_handle) {
+                if !rb.is_kinematic() {
+                    continue;
+                }
+                let trans = rb.translation();
+                results.push((
+                    EntityId::from_raw(raw_id),
+                    Position {
+                        x: trans.x as f64,
+                        y: trans.y as f64,
+                    },
+                ));
+            }
+        }
+        results.sort_by_key(|(eid, _)| eid.to_raw());
         results
     }
 
@@ -501,6 +533,19 @@ pub fn run_physics_step(
             *entity_id,
             "velocity",
             serde_json::json!({"dx": vel.dx, "dy": vel.dy}),
+            SystemId::PHYSICS,
+            CausalReason::SystemInternal("physics_step".to_owned()),
+        );
+    }
+
+    // Read back rapier-integrated positions for kinematic bodies (position
+    // only -- velocity is ECS-driven and should not be overwritten).
+    let kinematic_positions = physics.read_kinematic_positions();
+    for (entity_id, pos) in &kinematic_positions {
+        commands.set_component(
+            *entity_id,
+            "position",
+            serde_json::json!({"x": pos.x, "y": pos.y}),
             SystemId::PHYSICS,
             CausalReason::SystemInternal("physics_step".to_owned()),
         );
@@ -856,6 +901,73 @@ mod tests {
         assert!(
             cmds.len() >= 2,
             "should have position + velocity commands, got {}",
+            cmds.len()
+        );
+    }
+
+    #[test]
+    fn read_kinematic_positions_returns_integrated_position() {
+        let mut pw = PhysicsWorld::new_zero_gravity();
+        let eid = EntityId::new(0, 0);
+        pw.register_entity(
+            eid,
+            &Position { x: 0.0, y: 0.0 },
+            &Velocity { dx: 10.0, dy: 0.0 },
+            &PhysicsBody {
+                body_type: PhysicsBodyType::Kinematic,
+                collider: ColliderShape::Box {
+                    half_width: 1.0,
+                    half_height: 0.2,
+                },
+                restitution: 0.0,
+                is_sensor: false,
+            },
+        );
+
+        let _collisions = pw.step(1.0 / 60.0);
+
+        // read_results() should still exclude kinematic bodies.
+        assert!(pw.read_results().is_empty());
+
+        // read_kinematic_positions() should return the rapier-integrated position.
+        let kin_results = pw.read_kinematic_positions();
+        assert_eq!(kin_results.len(), 1);
+        let (ret_eid, pos) = &kin_results[0];
+        assert_eq!(*ret_eid, eid);
+        assert!(
+            pos.x > 0.0,
+            "kinematic body should move right via velocity integration, got x={}",
+            pos.x
+        );
+    }
+
+    #[test]
+    fn run_physics_step_position_only_commands_for_kinematic_body() {
+        let mut pw = PhysicsWorld::new_zero_gravity();
+        let eid = EntityId::new(0, 0);
+        pw.register_entity(
+            eid,
+            &Position { x: 0.0, y: 0.0 },
+            &Velocity { dx: 5.0, dy: 0.0 },
+            &PhysicsBody {
+                body_type: PhysicsBodyType::Kinematic,
+                collider: ColliderShape::Box {
+                    half_width: 1.0,
+                    half_height: 0.2,
+                },
+                restitution: 0.0,
+                is_sensor: false,
+            },
+        );
+
+        let mut cmds = CommandBuffer::new();
+        let (_collisions, _events) = run_physics_step(&mut pw, &mut cmds, 1.0 / 60.0, 1);
+
+        // Kinematic body should get exactly 1 command (position only, no velocity).
+        assert_eq!(
+            cmds.len(),
+            1,
+            "kinematic body should produce exactly 1 position command, got {}",
             cmds.len()
         );
     }
