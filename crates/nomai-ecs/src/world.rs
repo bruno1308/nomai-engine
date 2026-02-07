@@ -452,9 +452,9 @@ impl World {
         let loc = self
             .entity_locations
             .remove(&entity)
-            .ok_or(EcsError::StaleEntity(entity))?;
+            .ok_or(EcsError::StaleEntity { entity })?;
         if !self.allocator.is_alive(entity) {
-            return Err(EcsError::StaleEntity(entity));
+            return Err(EcsError::StaleEntity { entity });
         }
         let archetype = &mut self.archetypes[loc.archetype_id.0 as usize];
         let swapped = archetype.remove_entity(loc.row);
@@ -579,12 +579,15 @@ impl World {
         let type_id = self
             .registry
             .lookup::<T>()
-            .ok_or_else(|| EcsError::UnknownComponent(std::any::type_name::<T>().to_owned()))?;
+            .ok_or_else(|| EcsError::UnknownComponent {
+                name: std::any::type_name::<T>().to_owned(),
+                registered: self.registry.registered_names().join(", "),
+            })?;
 
         let loc = *self
             .entity_locations
             .get(&entity)
-            .ok_or(EcsError::StaleEntity(entity))?;
+            .ok_or(EcsError::StaleEntity { entity })?;
 
         let archetype = &self.archetypes[loc.archetype_id.0 as usize];
 
@@ -639,12 +642,15 @@ impl World {
         let type_id = self
             .registry
             .lookup::<T>()
-            .ok_or_else(|| EcsError::UnknownComponent(std::any::type_name::<T>().to_owned()))?;
+            .ok_or_else(|| EcsError::UnknownComponent {
+                name: std::any::type_name::<T>().to_owned(),
+                registered: self.registry.registered_names().join(", "),
+            })?;
 
         let loc = *self
             .entity_locations
             .get(&entity)
-            .ok_or(EcsError::StaleEntity(entity))?;
+            .ok_or(EcsError::StaleEntity { entity })?;
 
         let archetype = &self.archetypes[loc.archetype_id.0 as usize];
         if !archetype.has_component(type_id) {
@@ -785,7 +791,7 @@ impl World {
     /// no identity component (e.g., was spawned via the low-level `spawn_bundle`).
     pub fn get_identity(&self, entity: EntityId) -> Result<&Identity, EcsError> {
         self.get_component::<Identity>(entity)
-            .ok_or(EcsError::StaleEntity(entity))
+            .ok_or(EcsError::StaleEntity { entity })
     }
 
     /// Get the [`IdentityTier`] of an entity.
@@ -849,26 +855,27 @@ impl World {
         let type_id = self
             .registry
             .lookup_by_name(component_name)
-            .ok_or_else(|| EcsError::UnknownComponent(component_name.to_owned()))?;
+            .ok_or_else(|| EcsError::UnknownComponent {
+                name: component_name.to_owned(),
+                registered: self.registry.registered_names().join(", "),
+            })?;
 
         let _loc = self
             .entity_locations
             .get(&entity)
-            .ok_or(EcsError::StaleEntity(entity))?;
+            .ok_or(EcsError::StaleEntity { entity })?;
 
         // Deserialize JSON -> raw bytes in a properly-aligned buffer.
         let raw_buf = self
             .deserializer_registry
             .deserialize(type_id, value)
-            .ok_or_else(|| {
-                EcsError::UnknownComponent(format!(
-                    "no deserializer for component '{component_name}'"
-                ))
+            .ok_or_else(|| EcsError::ComponentDeserializationError {
+                component: component_name.to_owned(),
+                details: "no deserializer registered".to_owned(),
             })?
-            .map_err(|e| {
-                EcsError::UnknownComponent(format!(
-                    "failed to deserialize component '{component_name}': {e}"
-                ))
+            .map_err(|e| EcsError::ComponentDeserializationError {
+                component: component_name.to_owned(),
+                details: e,
             })?;
 
         let loc = *self.entity_locations.get(&entity).unwrap();
@@ -938,12 +945,15 @@ impl World {
         let type_id = self
             .registry
             .lookup_by_name(component_name)
-            .ok_or_else(|| EcsError::UnknownComponent(component_name.to_owned()))?;
+            .ok_or_else(|| EcsError::UnknownComponent {
+                name: component_name.to_owned(),
+                registered: self.registry.registered_names().join(", "),
+            })?;
 
         let loc = *self
             .entity_locations
             .get(&entity)
-            .ok_or(EcsError::StaleEntity(entity))?;
+            .ok_or(EcsError::StaleEntity { entity })?;
 
         let archetype = &self.archetypes[loc.archetype_id.0 as usize];
         if !archetype.has_component(type_id) {
@@ -1150,5 +1160,66 @@ mod tests {
         bundle.add(&world.registry, Pos { x: 1.0, y: 2.0 });
         bundle.add(&world.registry, Pos { x: 3.0, y: 4.0 }); // should panic
         let _ = world.spawn_bundle(bundle);
+    }
+
+    #[test]
+    fn unknown_component_error_lists_registered() {
+        let mut world = setup_world();
+        let e = world.spawn_with(Pos { x: 0.0, y: 0.0 });
+        let result = world.set_component_by_name(e, "nonexistent", &serde_json::json!(42));
+        let err = result.unwrap_err();
+        let msg = format!("{err}");
+        assert!(msg.contains("position"), "error should list registered components: {msg}");
+        assert!(msg.contains("velocity"), "error should list registered components: {msg}");
+    }
+
+    #[test]
+    fn collect_then_despawn_pattern_safe() {
+        let mut world = setup_world();
+        let e1 = world.spawn_with(Pos { x: 1.0, y: 0.0 });
+        let e2 = world.spawn_with(Pos { x: 2.0, y: 0.0 });
+        let e3 = world.spawn_with(Pos { x: 3.0, y: 0.0 });
+
+        let to_despawn: Vec<EntityId> = world.query::<(&Pos,)>()
+            .filter(|(_, (pos,))| pos.x > 1.5)
+            .map(|(e, _)| e)
+            .collect();
+
+        for e in &to_despawn {
+            world.despawn(*e).unwrap();
+        }
+
+        assert_eq!(world.entity_count(), 1);
+        assert!(world.is_alive(e1));
+        assert!(!world.is_alive(e2));
+        assert!(!world.is_alive(e3));
+    }
+
+    #[test]
+    fn collect_then_insert_pattern_safe() {
+        let mut world = setup_world();
+        let e1 = world.spawn_with(Pos { x: 1.0, y: 0.0 });
+        let e2 = world.spawn_with(Pos { x: 2.0, y: 0.0 });
+
+        let entities: Vec<EntityId> = world.query::<(&Pos,)>()
+            .map(|(e, _)| e)
+            .collect();
+
+        for e in entities {
+            world.insert_component(e, Vel { dx: 1.0, dy: 0.0 }).unwrap();
+        }
+
+        assert!(world.has_component::<Vel>(e1));
+        assert!(world.has_component::<Vel>(e2));
+    }
+
+    #[test]
+    fn deserialization_error_is_clear() {
+        let mut world = setup_world();
+        let e = world.spawn_with(Pos { x: 0.0, y: 0.0 });
+        let result = world.set_component_by_name(e, "position", &serde_json::json!("not a struct"));
+        assert!(result.is_err());
+        let msg = format!("{}", result.unwrap_err());
+        assert!(msg.contains("position"), "error should mention component name: {msg}");
     }
 }

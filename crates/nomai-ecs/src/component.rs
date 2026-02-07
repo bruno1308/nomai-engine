@@ -133,6 +133,13 @@ impl ComponentRegistry {
     pub fn is_empty(&self) -> bool {
         self.infos.is_empty()
     }
+
+    /// Returns the names of all registered component types, sorted.
+    pub fn registered_names(&self) -> Vec<&str> {
+        let mut names: Vec<&str> = self.by_name.keys().map(|s| s.as_str()).collect();
+        names.sort();
+        names
+    }
 }
 
 impl Default for ComponentRegistry {

@@ -49,12 +49,24 @@ pub mod world;
 #[derive(Debug, thiserror::Error)]
 pub enum EcsError {
     /// The entity does not exist (stale generation or never allocated).
-    #[error("entity {0:?} does not exist (stale generation)")]
-    StaleEntity(entity::EntityId),
+    #[error("entity {entity:?} does not exist (stale or never allocated)")]
+    StaleEntity {
+        entity: entity::EntityId,
+    },
 
     /// A component type was referenced that has not been registered.
-    #[error("component type '{0}' not registered -- call world.register_component::<T>() first")]
-    UnknownComponent(String),
+    #[error("component type '{name}' not registered. Registered components: [{registered}]")]
+    UnknownComponent {
+        name: String,
+        registered: String,
+    },
+
+    /// Deserialization of a component value failed.
+    #[error("failed to deserialize component '{component}': {details}")]
+    ComponentDeserializationError {
+        component: String,
+        details: String,
+    },
 }
 
 // ---------------------------------------------------------------------------
