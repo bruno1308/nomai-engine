@@ -389,6 +389,22 @@ impl World {
         id
     }
 
+    /// Register a dynamic component type by name.
+    ///
+    /// Unlike [`register_component`], this creates a unique [`ComponentTypeId`]
+    /// per name even if the backing Rust type is the same. Used for Python/JSON
+    /// components where all values are `serde_json::Value` but need distinct
+    /// component identities.
+    pub fn register_dynamic_component<T>(&mut self, name: &str) -> ComponentTypeId
+    where
+        T: Clone + Send + Sync + 'static + serde::Serialize + for<'de> serde::Deserialize<'de>,
+    {
+        let id = self.registry.register_dynamic::<T>(name);
+        self.vtable_registry.register::<T>(id);
+        self.deserializer_registry.register::<T>(id);
+        id
+    }
+
     // -- archetype management -----------------------------------------------
 
     /// Find or create the archetype for a given sorted set of component types.

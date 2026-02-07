@@ -1,5 +1,6 @@
 {
   "aggregates": {
+    "custom": {},
     "entity_count_by_tier": {
       "Untracked": 1
     },

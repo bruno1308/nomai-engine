@@ -106,6 +106,41 @@ impl ComponentRegistry {
         id
     }
 
+    /// Register a dynamic component type by name.
+    ///
+    /// Unlike [`register`], this creates a unique [`ComponentTypeId`] per name
+    /// even if the backing Rust type is the same. Used for Python/JSON
+    /// components where all values are `serde_json::Value` but need distinct
+    /// component identities.
+    ///
+    /// Returns the existing id if the name is already registered.
+    pub fn register_dynamic<T>(&mut self, name: &str) -> ComponentTypeId
+    where
+        T: Clone + Send + Sync + 'static + serde::Serialize + for<'de> serde::Deserialize<'de>,
+    {
+        // If the name is already registered, return the existing id.
+        if let Some(&existing) = self.by_name.get(name) {
+            return existing;
+        }
+
+        let rust_type_id = TypeId::of::<T>();
+        let id = ComponentTypeId(self.infos.len() as u32);
+
+        let info = ComponentInfo {
+            id,
+            name: name.to_owned(),
+            size: std::mem::size_of::<T>(),
+            align: std::mem::align_of::<T>(),
+            type_id: rust_type_id,
+        };
+        self.infos.push(info);
+        // NOTE: We do NOT insert into by_type here. The by_type map
+        // deduplicates by Rust TypeId, which we intentionally skip for
+        // dynamic components so each name gets a unique ComponentTypeId.
+        self.by_name.insert(name.to_owned(), id);
+        id
+    }
+
     /// Look up a component type by its Rust `TypeId`.
     pub fn lookup<T: 'static>(&self) -> Option<ComponentTypeId> {
         self.by_type.get(&TypeId::of::<T>()).copied()
