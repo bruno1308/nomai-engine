@@ -865,3 +865,57 @@ class TestIntentGenerator:
         behaviors = [i for i in suite.intents if i.kind == IntentKind.BEHAVIOR]
         assert len(behaviors) == 1
         assert behaviors[0].name == "a_b_bounce"
+
+
+# ---------------------------------------------------------------------------
+# Full Pipeline Integration
+# ---------------------------------------------------------------------------
+
+class TestFullPipeline:
+    """End-to-end: GameDesignSpec -> CompletenessChecker -> IntentGenerator -> verify."""
+
+    def test_breakout_pipeline(self) -> None:
+        # 1. Build spec
+        spec = _make_breakout_spec()
+
+        # 2. Check completeness
+        checker = CompletenessChecker()
+        questions = checker.check(spec)
+        assert len(questions) == 0, f"Unexpected gaps: {questions}"
+
+        # 3. Generate intents
+        gen = IntentGenerator()
+        suite = gen.generate(spec)
+        assert len(suite.intents) > 0
+
+        # 4. Verify the suite is well-formed
+        for intent in suite.intents:
+            warnings = intent.validate()
+            assert len(warnings) == 0, f"{intent.name}: {warnings}"
+
+    def test_incomplete_spec_produces_questions(self) -> None:
+        # Minimal spec with known gaps
+        spec = GameDesignSpec(
+            title="Minimal",
+            description="Test",
+            play_area=None,
+            entities=(
+                EntitySpec(name="ball", entity_type="projectile", role="ball",
+                           body_type="dynamic", required_components=("position",)),
+                EntitySpec(name="paddle", entity_type="character", role="paddle",
+                           body_type="kinematic", required_components=("position",)),
+            ),
+            interactions=(),
+            invariants=(),
+            degenerate_states=(),
+        )
+        checker = CompletenessChecker()
+        questions = checker.check(spec)
+        # Should ask about: play area, ball bounds, paddle bounds,
+        # ball speed, ball-paddle interaction, degenerate states
+        assert len(questions) >= 4
+        categories = {q.category for q in questions}
+        assert "bounds" in categories
+        assert "interaction" in categories
+        assert "invariant" in categories
+        assert "degenerate" in categories
