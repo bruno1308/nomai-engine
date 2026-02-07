@@ -953,3 +953,278 @@ mod integration_tests {
         );
     }
 }
+
+// ---------------------------------------------------------------------------
+// B8 Tests -- Integration: Intentional Failures
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod b8_integration_tests {
+    use super::*;
+    use nomai_ecs::world::World;
+    use nomai_manifest::manifest::ManifestPipeline;
+
+    /// Helper: load a WAT fixture file from the tests/fixtures directory.
+    fn fixture_bytes(name: &str) -> Vec<u8> {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests")
+            .join("fixtures")
+            .join(name);
+        std::fs::read(&path)
+            .unwrap_or_else(|e| panic!("failed to read fixture {}: {}", path.display(), e))
+    }
+
+    /// Component type for position (matches the JSON {"x":..., "y":...}).
+    #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+    struct Position {
+        x: f64,
+        y: f64,
+    }
+
+    /// Run a WASM scenario through the full pipeline and return manifest JSON values.
+    fn run_scenario(wasm_fixture: &str, num_ticks: u64) -> Vec<serde_json::Value> {
+        let mut world = World::new();
+        world.register_component::<Position>("position");
+        let entity = world.spawn_with(Position { x: 0.0, y: 0.0 });
+        assert_eq!(
+            entity.to_raw(),
+            0,
+            "first entity should have raw id 0"
+        );
+
+        let mut manifest = ManifestPipeline::new();
+        let config = WasmConfig::default();
+        let bytes = fixture_bytes(wasm_fixture);
+        let mut module = WasmModule::from_bytes(&config, &bytes).unwrap();
+
+        let mut manifests = Vec::new();
+        for tick in 1..=num_ticks {
+            let (tick_manifest, _) = crate::integration::run_wasm_tick(
+                &mut module,
+                &mut world,
+                &mut manifest,
+                tick,
+                tick as f64 / 60.0,
+            )
+            .unwrap();
+
+            let json = serde_json::to_value(&tick_manifest).unwrap();
+            manifests.push(json);
+        }
+
+        manifests
+    }
+
+    // -- B8 Test 1: Export correct manifests to JSON -------------------------
+
+    #[test]
+    fn b8_export_correct_manifests() {
+        let manifests = run_scenario("correct_movement.wat", 5);
+
+        // Write to JSON files for Python consumption.
+        let output_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests")
+            .join("fixtures")
+            .join("b8_manifests")
+            .join("correct");
+        std::fs::create_dir_all(&output_dir).unwrap();
+
+        for (i, manifest) in manifests.iter().enumerate() {
+            let path = output_dir.join(format!("tick_{}.json", i + 1));
+            let json_str = serde_json::to_string_pretty(manifest).unwrap();
+            std::fs::write(&path, json_str).unwrap();
+        }
+
+        // Basic sanity: manifests should have component changes.
+        for manifest in &manifests {
+            let changes = manifest["component_changes"]
+                .as_array()
+                .expect("component_changes should be an array");
+            assert!(
+                !changes.is_empty(),
+                "each tick should have component changes"
+            );
+
+            // Position should have x > 0 (correct behavior: moving toward target).
+            let pos_change = changes
+                .iter()
+                .find(|c| c["component_type_name"] == "position")
+                .expect("should have position change");
+            let new_value = &pos_change["new_value"];
+            let x = new_value["x"]
+                .as_f64()
+                .expect("new_value.x should be a number");
+            assert!(
+                x > 0.0,
+                "correct movement: x should be positive, got {x}"
+            );
+        }
+    }
+
+    // -- B8 Test 2: Export buggy manifests to JSON ---------------------------
+
+    #[test]
+    fn b8_export_buggy_manifests() {
+        let manifests = run_scenario("buggy_movement.wat", 5);
+
+        // Write to JSON files for Python consumption.
+        let output_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests")
+            .join("fixtures")
+            .join("b8_manifests")
+            .join("buggy");
+        std::fs::create_dir_all(&output_dir).unwrap();
+
+        for (i, manifest) in manifests.iter().enumerate() {
+            let path = output_dir.join(format!("tick_{}.json", i + 1));
+            let json_str = serde_json::to_string_pretty(manifest).unwrap();
+            std::fs::write(&path, json_str).unwrap();
+        }
+
+        // Sanity: buggy manifests have position with x < 0.
+        for manifest in &manifests {
+            let changes = manifest["component_changes"]
+                .as_array()
+                .expect("component_changes should be an array");
+            let pos_change = changes
+                .iter()
+                .find(|c| c["component_type_name"] == "position")
+                .expect("should have position change");
+            let new_value = &pos_change["new_value"];
+            let x = new_value["x"]
+                .as_f64()
+                .expect("new_value.x should be a number");
+            assert!(
+                x < 0.0,
+                "buggy movement: x should be negative, got {x}"
+            );
+        }
+    }
+
+    // -- B8 Test 3: Correct and buggy have different causality ---------------
+
+    #[test]
+    fn b8_correct_and_buggy_have_different_causality() {
+        let correct = run_scenario("correct_movement.wat", 3);
+        let buggy = run_scenario("buggy_movement.wat", 3);
+
+        // Both should have component changes.
+        assert!(!correct.is_empty());
+        assert!(!buggy.is_empty());
+
+        // Both should have WASM_GAMEPLAY as the system.
+        for manifest in correct.iter().chain(buggy.iter()) {
+            let changes = manifest["component_changes"]
+                .as_array()
+                .expect("component_changes should be an array");
+            for change in changes {
+                // SystemId(100) serializes as the integer 100 via serde newtype.
+                let changed_by = &change["changed_by"];
+                let sys_id = changed_by.as_u64().unwrap_or_else(|| {
+                    // Newtype struct: {"0": 100}
+                    changed_by
+                        .get("0")
+                        .and_then(|v| v.as_u64())
+                        .expect("changed_by should contain SystemId value")
+                });
+                assert_eq!(
+                    sys_id, 100,
+                    "all changes should be from WASM_GAMEPLAY (SystemId=100)"
+                );
+            }
+        }
+
+        // The reason strings should differ between correct and buggy.
+        let correct_reason = &correct[0]["component_changes"][0]["reason"];
+        let buggy_reason = &buggy[0]["component_changes"][0]["reason"];
+        assert_ne!(
+            correct_reason, buggy_reason,
+            "correct and buggy should have different reason strings"
+        );
+    }
+
+    // -- B8 Test 4: Manifest JSON roundtrip through Python format -----------
+
+    #[test]
+    fn b8_manifest_json_has_required_fields() {
+        let manifests = run_scenario("correct_movement.wat", 1);
+        let manifest = &manifests[0];
+
+        // Verify all fields required by Python TickManifest.from_json are present.
+        assert!(manifest.get("tick").is_some(), "manifest must have 'tick'");
+        assert!(
+            manifest.get("sim_time").is_some(),
+            "manifest must have 'sim_time'"
+        );
+        assert!(
+            manifest.get("entity_spawns").is_some(),
+            "manifest must have 'entity_spawns'"
+        );
+        assert!(
+            manifest.get("entity_despawns").is_some(),
+            "manifest must have 'entity_despawns'"
+        );
+        assert!(
+            manifest.get("component_changes").is_some(),
+            "manifest must have 'component_changes'"
+        );
+        assert!(
+            manifest.get("events").is_some(),
+            "manifest must have 'events'"
+        );
+        assert!(
+            manifest.get("aggregates").is_some(),
+            "manifest must have 'aggregates'"
+        );
+        assert!(
+            manifest.get("systems_executed").is_some(),
+            "manifest must have 'systems_executed'"
+        );
+        assert!(
+            manifest.get("commands_processed").is_some(),
+            "manifest must have 'commands_processed'"
+        );
+        assert!(
+            manifest.get("commands_succeeded").is_some(),
+            "manifest must have 'commands_succeeded'"
+        );
+
+        // Verify component change has all required fields for Python parsing.
+        let change = &manifest["component_changes"][0];
+        assert!(
+            change.get("entity_id").is_some(),
+            "change must have 'entity_id'"
+        );
+        assert!(
+            change.get("component_type_name").is_some(),
+            "change must have 'component_type_name'"
+        );
+        assert!(
+            change.get("new_value").is_some(),
+            "change must have 'new_value'"
+        );
+        assert!(
+            change.get("changed_by").is_some(),
+            "change must have 'changed_by'"
+        );
+        assert!(
+            change.get("reason").is_some(),
+            "change must have 'reason'"
+        );
+        assert!(
+            change.get("command_index").is_some(),
+            "change must have 'command_index'"
+        );
+        assert!(
+            change.get("tick").is_some(),
+            "change must have 'tick'"
+        );
+
+        // Verify the reason is in the expected serde enum format.
+        let reason = &change["reason"];
+        assert!(
+            reason.get("GameRule").is_some(),
+            "reason should be {{\"GameRule\": \"...\"}} format, got: {reason}"
+        );
+    }
+}

@@ -1,0 +1,36 @@
+{
+  "aggregates": {
+    "entity_count_by_tier": {
+      "Untracked": 1
+    },
+    "entity_count_by_type": {},
+    "total_entity_count": 1
+  },
+  "commands_processed": 1,
+  "commands_succeeded": 1,
+  "component_changes": [
+    {
+      "changed_by": 100,
+      "command_index": 0,
+      "component_type_name": "position",
+      "entity_id": 0,
+      "new_value": {
+        "x": -1.0,
+        "y": 0.0
+      },
+      "old_value": null,
+      "reason": {
+        "GameRule": "move_away_buggy"
+      },
+      "tick": 3
+    }
+  ],
+  "entity_despawns": [],
+  "entity_spawns": [],
+  "events": [],
+  "sim_time": 0.05,
+  "systems_executed": [
+    "wasm_gameplay"
+  ],
+  "tick": 3
+}
