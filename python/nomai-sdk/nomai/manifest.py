@@ -215,6 +215,7 @@ class Aggregates:
     entity_count_by_tier: dict[str, int]
     entity_count_by_type: dict[str, int]
     total_entity_count: int
+    custom: dict[str, float] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, object]:
         """Serialize to a dict matching the Rust serde JSON layout."""
@@ -222,6 +223,7 @@ class Aggregates:
             "entity_count_by_tier": dict(self.entity_count_by_tier),
             "entity_count_by_type": dict(self.entity_count_by_type),
             "total_entity_count": self.total_entity_count,
+            "custom": dict(self.custom),
         }
 
     @classmethod
@@ -229,16 +231,21 @@ class Aggregates:
         """Parse from a dict matching the Rust serde JSON layout."""
         raw_tier = data.get("entity_count_by_tier", {})
         raw_type = data.get("entity_count_by_type", {})
+        raw_custom = data.get("custom", {})
         tier_counts: dict[str, int] = {}
         type_counts: dict[str, int] = {}
+        custom: dict[str, float] = {}
         if isinstance(raw_tier, dict):
             tier_counts = {str(k): int(v) for k, v in raw_tier.items()}  # type: ignore[arg-type]
         if isinstance(raw_type, dict):
             type_counts = {str(k): int(v) for k, v in raw_type.items()}  # type: ignore[arg-type]
+        if isinstance(raw_custom, dict):
+            custom = {str(k): float(v) for k, v in raw_custom.items()}  # type: ignore[arg-type]
         return cls(
             entity_count_by_tier=tier_counts,
             entity_count_by_type=type_counts,
             total_entity_count=int(data.get("total_entity_count", 0)),  # type: ignore[arg-type]
+            custom=custom,
         )
 
 
