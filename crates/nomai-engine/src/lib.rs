@@ -39,6 +39,9 @@ pub use nomai_ecs;
 /// Re-export the manifest crate for convenience.
 pub use nomai_manifest;
 
+/// Re-export the WASM host crate for convenience.
+pub use nomai_wasm_host;
+
 // ---------------------------------------------------------------------------
 // Prelude
 // ---------------------------------------------------------------------------

@@ -1,16 +1,25 @@
 //! Fixed-timestep tick loop for deterministic simulation.
 //!
-//! The [`TickLoop`] drives the Nomai Engine simulation forward. Each tick:
+//! The [`TickLoop`] drives the Nomai Engine simulation forward. Each tick
+//! follows an 8-phase pipeline:
 //!
-//! 1. The manifest pipeline begins a new tick (clearing per-tick state).
-//! 2. All registered systems run in declaration order, each receiving a shared
-//!    reference to the [`World`] and a mutable reference to the [`CommandBuffer`].
-//! 3. The command buffer is applied to the world (FIFO, deterministic).
-//! 4. Applied commands are fed into the manifest pipeline (spawns, despawns,
-//!    component changes).
-//! 5. The manifest pipeline finalizes the tick, computing aggregates and
-//!    producing a [`TickManifest`].
-//! 6. The tick counter and simulation time advance.
+//! 1. **Begin manifest tick** -- clears per-tick manifest state.
+//! 2. **Run user systems** -- all registered systems execute in declaration
+//!    order, each receiving `&World` + `&mut CommandBuffer`.
+//! 3. **Run physics step** -- if a rapier2d physics world is attached, step
+//!    the simulation, record collision events, and emit position/velocity
+//!    update commands.
+//! 4. **Run WASM gameplay** -- if a WASM module is attached, call its
+//!    `tick()` export, drain commands and events. On trap, commands/events
+//!    are discarded to prevent leakage.
+//! 5. **Apply commands** -- the command buffer is applied to the world
+//!    (deterministic FIFO order).
+//! 6. **Process commands into manifest** -- spawns, despawns, and component
+//!    changes are recorded in the manifest pipeline.
+//! 7. **Finalize manifest** -- aggregates are computed and the
+//!    [`TickManifest`] is pushed to the rolling history.
+//! 8. **Advance tick counter** -- tick count and simulation time step
+//!    forward.
 //!
 //! Because system ordering is fixed, the command buffer is FIFO, and there is no
 //! non-deterministic input (randomness must use a seeded RNG), the tick loop is
@@ -168,6 +177,10 @@ pub struct TickLoop {
     current_input: InputFrame,
     /// Manifest pipeline: produces per-tick structured state snapshots.
     manifest: ManifestPipeline,
+    /// Optional physics world. Set via [`set_physics`](Self::set_physics).
+    physics: Option<crate::physics::PhysicsWorld>,
+    /// Optional WASM gameplay module. Set via [`set_wasm_module`](Self::set_wasm_module).
+    wasm_module: Option<nomai_wasm_host::WasmModule>,
 }
 
 impl TickLoop {
@@ -190,6 +203,8 @@ impl TickLoop {
             last_diagnostics: TickDiagnostics::default(),
             current_input: InputFrame::default(),
             manifest: ManifestPipeline::new(),
+            physics: None,
+            wasm_module: None,
         }
     }
 
@@ -286,18 +301,24 @@ impl TickLoop {
 
     /// Execute one simulation tick.
     ///
-    /// Each tick follows a six-phase flow:
+    /// Each tick follows a multi-phase flow:
     ///
-    /// 1. **Begin manifest tick** — clears per-tick manifest state.
-    /// 2. **Run systems** — all registered systems execute in order, each
+    /// 1. **Begin manifest tick** -- clears per-tick manifest state.
+    /// 2. **Run user systems** -- all registered systems execute in order, each
     ///    reading from the world and writing to the command buffer.
-    /// 3. **Apply commands** — the command buffer is applied to the world
+    /// 3. **Run physics step** -- if a physics world is attached, step the
+    ///    rapier2d simulation, record collision events, and emit position/velocity
+    ///    update commands.
+    /// 4. **Run WASM gameplay** -- if a WASM module is attached, prepare the
+    ///    host state with a world snapshot, call `tick()`, drain commands and
+    ///    events, and merge WASM commands into the main command buffer.
+    /// 5. **Apply commands** -- the command buffer is applied to the world
     ///    (deterministic FIFO order).
-    /// 4. **Process commands into manifest** — spawns, despawns, and component
+    /// 6. **Process commands into manifest** -- spawns, despawns, and component
     ///    changes are recorded in the manifest pipeline.
-    /// 5. **Finalize manifest** — aggregates are computed and the
+    /// 7. **Finalize manifest** -- aggregates are computed and the
     ///    [`TickManifest`] is pushed to the rolling history.
-    /// 6. **Advance tick counter** — tick count and simulation time step
+    /// 8. **Advance tick counter** -- tick count and simulation time step
     ///    forward.
     ///
     /// Returns the list of processed commands from this tick. Check each
@@ -306,33 +327,128 @@ impl TickLoop {
     pub fn tick(&mut self) -> Vec<nomai_ecs::command::Command> {
         let tick_start = Instant::now();
         let mut system_times = Vec::with_capacity(self.systems.len());
+        let sim_time = self.tick_counter as f64 * self.fixed_dt;
 
         // Phase 1: Begin manifest tick (clear per-tick state).
         self.manifest.begin_tick();
 
-        // Phase 2: Run all systems in registered order with timing.
+        // Phase 2: Run all user systems in registered order with timing.
         for system in &self.systems {
             let sys_start = Instant::now();
             (system.func)(&self.world, &mut self.command_buffer);
             system_times.push((system.name.clone(), sys_start.elapsed()));
         }
 
-        // Phase 3: Apply command buffer to the world with timing.
+        // Phase 3: Run physics step (if physics world is attached).
+        if let Some(ref mut physics) = self.physics {
+            let physics_start = Instant::now();
+            let (collisions, events) = crate::physics::run_physics_step(
+                physics,
+                &mut self.command_buffer,
+                self.fixed_dt,
+                self.tick_counter,
+            );
+
+            // Record collision events in the manifest.
+            for event in events {
+                self.manifest.record_event(event);
+            }
+
+            // Log collision count at trace level for diagnostics.
+            if !collisions.is_empty() {
+                tracing::trace!(
+                    tick = self.tick_counter,
+                    collision_count = collisions.len(),
+                    "physics collisions detected"
+                );
+            }
+
+            system_times.push((
+                crate::physics::PHYSICS_SYSTEM_NAME.to_owned(),
+                physics_start.elapsed(),
+            ));
+        }
+
+        // Phase 4: Run WASM gameplay (if WASM module is attached).
+        if let Some(ref mut wasm) = self.wasm_module {
+            let wasm_start = Instant::now();
+
+            // Prepare host state: set tick metadata and entity count.
+            // WASM modules read entity count, tick number, and sim time
+            // from the host state. A full component snapshot can be
+            // provided externally via wasm_module_mut() before calling tick().
+            wasm.host_state_mut().begin_tick(self.tick_counter, sim_time);
+            wasm.host_state_mut().entity_count = self.world.entity_count();
+
+            // Call WASM tick (trap-safe: log and skip on failure).
+            let wasm_succeeded = match wasm.call_tick() {
+                Ok(fuel_consumed) => {
+                    tracing::trace!(
+                        tick = self.tick_counter,
+                        fuel_consumed,
+                        "WASM tick completed"
+                    );
+                    true
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        tick = self.tick_counter,
+                        error = %e,
+                        consecutive_traps = wasm.consecutive_traps(),
+                        "WASM tick trapped -- skipping WASM commands for this tick"
+                    );
+                    false
+                }
+            };
+
+            // On success, drain WASM commands and events into the main pipeline.
+            // On trap, drain and DISCARD to prevent leakage to the next tick
+            // (HostState::begin_tick does not clear queued commands/events).
+            if wasm_succeeded {
+                // Drain commands from WASM and merge into the main buffer.
+                let wasm_cmd_buf = wasm.drain_commands();
+                for cmd in wasm_cmd_buf.commands() {
+                    self.command_buffer.push_raw(cmd.clone());
+                }
+
+                // Drain events from WASM and record in manifest.
+                let wasm_events = wasm.drain_events();
+                for event in wasm_events {
+                    self.manifest.record_event(event);
+                }
+            } else {
+                // Trap occurred: drain and discard any partial commands/events
+                // emitted before the trap to prevent them leaking into the
+                // next successful tick.
+                let _ = wasm.drain_commands();
+                let _ = wasm.drain_events();
+            }
+
+            system_times.push(("wasm_gameplay".to_owned(), wasm_start.elapsed()));
+        }
+
+        // Phase 5: Apply command buffer to the world with timing.
         let apply_start = Instant::now();
         let applied = self.command_buffer.apply(&mut self.world);
         let command_apply_time = apply_start.elapsed();
 
-        // Phase 4: Feed applied commands into the manifest pipeline.
+        // Phase 6: Feed applied commands into the manifest pipeline.
         self.manifest
             .process_commands(&applied, self.tick_counter, &self.world);
 
-        // Phase 5: Finalize manifest for this tick (before advancing counter).
-        let system_names: Vec<String> = self.systems.iter().map(|s| s.name.clone()).collect();
-        let sim_time = self.tick_counter as f64 * self.fixed_dt;
+        // Phase 7: Finalize manifest for this tick (before advancing counter).
+        let mut system_names: Vec<String> =
+            self.systems.iter().map(|s| s.name.clone()).collect();
+        if self.physics.is_some() {
+            system_names.push(crate::physics::PHYSICS_SYSTEM_NAME.to_owned());
+        }
+        if self.wasm_module.is_some() {
+            system_names.push("wasm_gameplay".to_owned());
+        }
         self.manifest
             .end_tick(self.tick_counter, sim_time, system_names, &self.world);
 
-        // Phase 6: Advance tick counter.
+        // Phase 8: Advance tick counter.
         self.tick_counter += 1;
 
         self.last_diagnostics = TickDiagnostics {
@@ -457,6 +573,74 @@ impl TickLoop {
     /// to inject commands before the next tick.
     pub fn command_buffer_mut(&mut self) -> &mut CommandBuffer {
         &mut self.command_buffer
+    }
+
+    // -- physics accessors ---------------------------------------------------
+
+    /// Attach a physics world to the tick loop.
+    ///
+    /// When a physics world is attached, each tick will run a rapier2d
+    /// simulation step between user systems and WASM gameplay, emitting
+    /// position/velocity update commands and collision events.
+    pub fn set_physics(&mut self, physics: crate::physics::PhysicsWorld) {
+        self.physics = Some(physics);
+    }
+
+    /// Read-only access to the physics world, if attached.
+    pub fn physics(&self) -> Option<&crate::physics::PhysicsWorld> {
+        self.physics.as_ref()
+    }
+
+    /// Mutable access to the physics world, if attached.
+    ///
+    /// Use this to register/unregister entities with the physics simulation.
+    pub fn physics_mut(&mut self) -> Option<&mut crate::physics::PhysicsWorld> {
+        self.physics.as_mut()
+    }
+
+    // -- WASM accessors ------------------------------------------------------
+
+    /// Attach a WASM gameplay module to the tick loop.
+    ///
+    /// When a WASM module is attached, each tick will call its `tick()` export
+    /// after physics (if present). WASM commands are merged into the main
+    /// command buffer before application. Traps are logged and skipped -- the
+    /// module remains attached for retry on the next tick.
+    pub fn set_wasm_module(&mut self, module: nomai_wasm_host::WasmModule) {
+        self.wasm_module = Some(module);
+    }
+
+    /// Replace the current WASM module with a new one compiled from the given
+    /// bytes.
+    ///
+    /// If no WASM module is currently attached, this is an error. Use
+    /// [`set_wasm_module`](Self::set_wasm_module) to attach the first module.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WasmError`](nomai_wasm_host::WasmError) if the new bytes
+    /// fail compilation, are missing the `tick()` export, or have invalid
+    /// imports.
+    pub fn swap_wasm_module(
+        &mut self,
+        bytes: &[u8],
+    ) -> Result<(), nomai_wasm_host::WasmError> {
+        match self.wasm_module {
+            Some(ref mut module) => module.swap(bytes),
+            None => Err(nomai_wasm_host::WasmError::Runtime(
+                "no WASM module is attached -- use set_wasm_module() first".to_owned(),
+            )),
+        }
+    }
+
+    /// Read-only access to the WASM module, if attached.
+    pub fn wasm_module(&self) -> Option<&nomai_wasm_host::WasmModule> {
+        self.wasm_module.as_ref()
+    }
+
+    /// Mutable access to the WASM module, if attached.
+    pub fn wasm_module_mut(&mut self) -> Option<&mut nomai_wasm_host::WasmModule> {
+        self.wasm_module.as_mut()
     }
 }
 

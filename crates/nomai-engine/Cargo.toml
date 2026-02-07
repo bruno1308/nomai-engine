@@ -6,6 +6,7 @@ edition.workspace = true
 [dependencies]
 nomai-ecs = { path = "../nomai-ecs" }
 nomai-manifest = { path = "../nomai-manifest" }
+nomai-wasm-host = { path = "../nomai-wasm-host" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

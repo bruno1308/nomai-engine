@@ -520,6 +520,17 @@ impl CommandBuffer {
         Ok(())
     }
 
+    /// Push a pre-built command into the buffer.
+    ///
+    /// Used for merging commands from external sources (e.g., WASM modules)
+    /// into the main command buffer. The command index is reassigned to
+    /// maintain ordering within this buffer.
+    pub fn push_raw(&mut self, mut cmd: Command) {
+        cmd.command_index = self.next_index;
+        self.next_index += 1;
+        self.commands.push(cmd);
+    }
+
     /// Clear the buffer without applying any commands.
     pub fn clear(&mut self) {
         self.commands.clear();
