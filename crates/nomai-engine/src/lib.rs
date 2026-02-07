@@ -26,6 +26,7 @@
 
 #![deny(unsafe_code)]
 
+pub mod physics;
 pub mod tick;
 
 // ---------------------------------------------------------------------------
@@ -49,6 +50,12 @@ pub mod prelude {
 
     // Engine-specific exports.
     pub use crate::tick::{InputFrame, SystemFn, TickConfig, TickDiagnostics, TickLoop};
+
+    // Physics types.
+    pub use crate::physics::{
+        ColliderShape, CollisionPair, PhysicsBody, PhysicsBodyType, PhysicsWorld, Position,
+        Velocity, PHYSICS_SYSTEM_NAME,
+    };
 
     // Manifest types for convenient access.
     pub use nomai_manifest::journal::{ChangeJournal, ComponentChange};

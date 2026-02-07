@@ -1,4 +1,7 @@
 {
+  "enabledPlugins": {
+    "unity-csharp-lsp@unity-lsp-local": false
+  },
   "permissions": {
     "allow": [
       "Bash(cargo build:*)",
