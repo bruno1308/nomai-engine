@@ -76,7 +76,7 @@ pub enum EcsError {
 /// Convenience re-exports for common usage.
 pub mod prelude {
     pub use crate::archetype::{Archetype, ArchetypeId};
-    pub use crate::command::{CausalReason, Command, CommandBuffer, CommandKind};
+    pub use crate::command::{ApplyReport, CausalReason, Command, CommandBuffer, CommandKind};
     pub use crate::component::{ComponentInfo, ComponentRegistry, ComponentTypeId};
     pub use crate::entity::EntityId;
     pub use crate::identity::{EntityIdentity, Identity, IdentityTier, PoolIdentity, SystemId};

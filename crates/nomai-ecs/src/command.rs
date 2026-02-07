@@ -156,6 +156,28 @@ pub struct Command {
 }
 
 // ---------------------------------------------------------------------------
+// ApplyReport
+// ---------------------------------------------------------------------------
+
+/// Summary of the last [`CommandBuffer::apply`] call.
+///
+/// This report provides visibility into command-buffer health for each tick.
+/// `conflict_count` tracks how many (entity, component) pairs were targeted
+/// by multiple commands in a single tick (last-write-wins semantics apply --
+/// conflicts are warnings, not errors). `success_count` and `failed_count`
+/// track how many commands applied successfully vs. failed (e.g. due to stale
+/// entity references).
+#[derive(Debug, Clone, Default)]
+pub struct ApplyReport {
+    /// Number of (entity, component) pairs targeted by multiple commands.
+    pub conflict_count: usize,
+    /// Number of commands that failed to apply.
+    pub failed_count: usize,
+    /// Number of commands that applied successfully.
+    pub success_count: usize,
+}
+
+// ---------------------------------------------------------------------------
 // CommandBuffer
 // ---------------------------------------------------------------------------
 
@@ -172,6 +194,7 @@ pub struct Command {
 pub struct CommandBuffer {
     commands: Vec<Command>,
     next_index: u32,
+    last_apply_report: ApplyReport,
 }
 
 impl CommandBuffer {
@@ -180,6 +203,7 @@ impl CommandBuffer {
         Self {
             commands: Vec::new(),
             next_index: 0,
+            last_apply_report: ApplyReport::default(),
         }
     }
 
@@ -296,6 +320,13 @@ impl CommandBuffer {
         self.commands.is_empty()
     }
 
+    /// Report from the last [`apply`](Self::apply) call.
+    ///
+    /// Returns a default (all-zero) report if `apply()` has never been called.
+    pub fn last_apply_report(&self) -> &ApplyReport {
+        &self.last_apply_report
+    }
+
     /// Apply all commands to the world in deterministic insertion order.
     ///
     /// Returns the list of all commands (successful and failed) so the
@@ -313,6 +344,45 @@ impl CommandBuffer {
     pub fn apply(&mut self, world: &mut World) -> Vec<Command> {
         let mut commands = std::mem::take(&mut self.commands);
         self.next_index = 0;
+
+        // --- Conflict detection ---
+        use std::collections::HashMap;
+        let mut seen: HashMap<(EntityId, String), Vec<u32>> = HashMap::new();
+        for cmd in &commands {
+            if let Some(target) = cmd.target {
+                let component_name = match &cmd.kind {
+                    CommandKind::SetComponent { component_name, .. } => {
+                        Some(component_name.clone())
+                    }
+                    CommandKind::RemoveComponent { component_name } => {
+                        Some(component_name.clone())
+                    }
+                    _ => None,
+                };
+                if let Some(name) = component_name {
+                    seen.entry((target, name))
+                        .or_default()
+                        .push(cmd.command_index);
+                }
+            }
+        }
+        let mut conflict_count = 0;
+        for ((entity, component), indices) in &seen {
+            if indices.len() > 1 {
+                conflict_count += 1;
+                tracing::warn!(
+                    entity = ?entity,
+                    component = %component,
+                    command_indices = ?indices,
+                    "conflict: {} commands target the same entity+component in this tick (last-write-wins)",
+                    indices.len()
+                );
+            }
+        }
+
+        // --- Apply loop ---
+        let mut success_count: usize = 0;
+        let mut failed_count: usize = 0;
 
         for cmd in &mut commands {
             // Clone the kind to avoid borrow checker issues when spawn
@@ -353,8 +423,10 @@ impl CommandBuffer {
             match result {
                 Ok(()) => {
                     cmd.applied_successfully = true;
+                    success_count += 1;
                 }
                 Err(e) => {
+                    failed_count += 1;
                     warn!(
                         command_index = cmd.command_index,
                         target = ?cmd.target,
@@ -365,6 +437,13 @@ impl CommandBuffer {
                 }
             }
         }
+
+        // --- Store report ---
+        self.last_apply_report = ApplyReport {
+            conflict_count,
+            success_count,
+            failed_count,
+        };
 
         commands
     }
@@ -1098,5 +1177,124 @@ mod tests {
             !applied[1].applied_successfully,
             "command on stale entity should fail"
         );
+    }
+
+    // -- 19. Conflict detection -----------------------------------------------
+
+    #[test]
+    fn conflict_detection_warns_on_duplicate_target() {
+        let mut world = setup_world();
+        let entity = world.spawn_with(Position { x: 0.0, y: 0.0 });
+
+        let mut buf = CommandBuffer::new();
+        buf.set_component(
+            entity,
+            "position",
+            serde_json::json!({"x": 1.0, "y": 0.0}),
+            SystemId(0),
+            CausalReason::PlayerInput("move1".to_owned()),
+        );
+        buf.set_component(
+            entity,
+            "position",
+            serde_json::json!({"x": 2.0, "y": 0.0}),
+            SystemId(1),
+            CausalReason::PlayerInput("move2".to_owned()),
+        );
+
+        let _applied = buf.apply(&mut world);
+        // Last-write-wins: position should be (2.0, 0.0).
+        assert_eq!(
+            world.get_component::<Position>(entity),
+            Some(&Position { x: 2.0, y: 0.0 })
+        );
+        // Report should show 1 conflict.
+        assert_eq!(buf.last_apply_report().conflict_count, 1);
+    }
+
+    // -- 20. No conflict for different components ----------------------------
+
+    #[test]
+    fn no_conflict_for_different_components() {
+        let mut world = setup_world();
+        let entity = world.spawn_with(Position { x: 0.0, y: 0.0 });
+
+        let mut buf = CommandBuffer::new();
+        buf.set_component(
+            entity,
+            "position",
+            serde_json::json!({"x": 1.0, "y": 0.0}),
+            SystemId(0),
+            CausalReason::PlayerInput("move".to_owned()),
+        );
+        buf.set_component(
+            entity,
+            "health",
+            serde_json::json!(100),
+            SystemId(1),
+            CausalReason::GameRule("heal".to_owned()),
+        );
+
+        let _applied = buf.apply(&mut world);
+        assert_eq!(buf.last_apply_report().conflict_count, 0);
+    }
+
+    // -- 21. Apply report counts success and failure -------------------------
+
+    #[test]
+    fn apply_report_counts_success_and_failure() {
+        let mut world = setup_world();
+        let alive = world.spawn_with(Position { x: 0.0, y: 0.0 });
+        let dead = world.spawn_with(Position { x: 1.0, y: 0.0 });
+        world.despawn(dead).unwrap();
+
+        let mut buf = CommandBuffer::new();
+        buf.set_component(
+            alive,
+            "position",
+            serde_json::json!({"x": 5.0, "y": 0.0}),
+            SystemId(0),
+            CausalReason::PlayerInput("move".to_owned()),
+        );
+        buf.set_component(
+            dead,
+            "position",
+            serde_json::json!({"x": 9.0, "y": 0.0}),
+            SystemId(0),
+            CausalReason::SystemInternal("stale".to_owned()),
+        );
+
+        let _applied = buf.apply(&mut world);
+        let report = buf.last_apply_report();
+        assert_eq!(report.success_count, 1);
+        assert_eq!(report.failed_count, 1);
+    }
+
+    // -- 22. No conflict for different entities ------------------------------
+
+    #[test]
+    fn no_conflict_for_different_entities() {
+        let mut world = setup_world();
+        let e1 = world.spawn_with(Position { x: 0.0, y: 0.0 });
+        let e2 = world.spawn_with(Position { x: 0.0, y: 0.0 });
+
+        let mut buf = CommandBuffer::new();
+        buf.set_component(
+            e1,
+            "position",
+            serde_json::json!({"x": 1.0, "y": 0.0}),
+            SystemId(0),
+            CausalReason::PlayerInput("move1".to_owned()),
+        );
+        buf.set_component(
+            e2,
+            "position",
+            serde_json::json!({"x": 2.0, "y": 0.0}),
+            SystemId(0),
+            CausalReason::PlayerInput("move2".to_owned()),
+        );
+
+        let _applied = buf.apply(&mut world);
+        assert_eq!(buf.last_apply_report().conflict_count, 0);
     }
 }
