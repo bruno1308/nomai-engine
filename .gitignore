@@ -1,5 +1,6 @@
 # Rust
 /target/
+**/target/
 **/*.rs.bk
 Cargo.lock
 
@@ -35,6 +36,7 @@ gameplay/build/
 .DS_Store
 Thumbs.db
 Desktop.ini
+nul
 
 # Benchmarks (results are committed, but intermediate files are not)
 benchmarks/target/
