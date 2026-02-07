@@ -102,15 +102,22 @@ pub struct TickDiagnostics {
 
 /// A single frame of recorded input for replay.
 ///
-/// Uses [`BTreeMap`] instead of `HashMap` for deterministic iteration order,
+/// Uses `BTreeMap` instead of `HashMap` for deterministic iteration order,
 /// which ensures BLAKE3 hashes are reproducible across processes.
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct InputFrame {
     /// Arbitrary key-value pairs representing inputs for this tick.
     ///
-    /// Stored in a [`BTreeMap`] so serialization order is deterministic,
+    /// Stored in a `BTreeMap` so serialization order is deterministic,
     /// guaranteeing stable BLAKE3 hashes across runs.
     pub inputs: std::collections::BTreeMap<String, serde_json::Value>,
+}
+
+impl InputFrame {
+    /// Returns `true` if this input frame contains no inputs.
+    pub fn is_empty(&self) -> bool {
+        self.inputs.is_empty()
+    }
 }
 
 // ---------------------------------------------------------------------------
