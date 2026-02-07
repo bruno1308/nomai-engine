@@ -138,6 +138,13 @@ pub struct Aggregates {
     pub entity_count_by_type: HashMap<String, usize>,
     /// Total number of alive entities in the world.
     pub total_entity_count: usize,
+    /// Custom aggregates registered via [`ManifestPipeline::register_aggregate`].
+    ///
+    /// Each entry maps a user-defined name to a computed `f64` value.
+    /// Defaults to an empty map so that existing serialized manifests
+    /// deserialize without error.
+    #[serde(default)]
+    pub custom: HashMap<String, f64>,
 }
 
 // ---------------------------------------------------------------------------
@@ -204,6 +211,12 @@ pub struct TickManifest {
 // ManifestPipeline
 // ---------------------------------------------------------------------------
 
+/// Type alias for a custom aggregate function.
+///
+/// Custom aggregates are registered via [`ManifestPipeline::register_aggregate`]
+/// and evaluated at the end of each tick against the current [`World`] state.
+type AggregateFn = Box<dyn Fn(&World) -> f64 + Send>;
+
 /// The manifest pipeline. Maintains state across ticks and generates
 /// per-tick manifests.
 ///
@@ -229,6 +242,8 @@ pub struct ManifestPipeline {
     history: VecDeque<TickManifest>,
     /// Maximum number of tick manifests to retain in history.
     max_history: usize,
+    /// Registered custom aggregate functions.
+    custom_aggregates: Vec<(String, AggregateFn)>,
 }
 
 impl ManifestPipeline {
@@ -249,6 +264,7 @@ impl ManifestPipeline {
             current_commands_succeeded: 0,
             history: VecDeque::new(),
             max_history,
+            custom_aggregates: Vec::new(),
         }
     }
 
@@ -445,7 +461,14 @@ impl ManifestPipeline {
         systems_executed: Vec<String>,
         world: &World,
     ) -> TickManifest {
-        let aggregates = self.compute_aggregates(world);
+        let mut aggregates = self.compute_aggregates(world);
+
+        // Compute custom aggregates.
+        let mut custom = HashMap::new();
+        for (name, func) in &self.custom_aggregates {
+            custom.insert(name.clone(), func(world));
+        }
+        aggregates.custom = custom;
 
         let manifest = TickManifest {
             tick,
@@ -542,6 +565,41 @@ impl ManifestPipeline {
         self.history.iter().find(|m| m.tick == tick)
     }
 
+    /// Return all manifests from the given tick onward (inclusive).
+    ///
+    /// Returns an empty vec if no manifests in history have tick >= `since_tick`.
+    /// When `since_tick` is older than the oldest tick in the history window,
+    /// all available manifests are returned (partial history).
+    ///
+    /// This is the "delta mode" -- query only what changed since your last read.
+    pub fn manifests_since(&self, since_tick: u64) -> Vec<&TickManifest> {
+        self.history
+            .iter()
+            .filter(|m| m.tick >= since_tick)
+            .collect()
+    }
+
+    /// Register a custom aggregate function.
+    ///
+    /// The function will be called with a reference to the [`World`] at the end
+    /// of each tick. Its return value will be stored in
+    /// [`Aggregates::custom`] under the given `name`.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// pipeline.register_aggregate("brick_count", |world| {
+    ///     world.entity_count() as f64
+    /// });
+    /// ```
+    pub fn register_aggregate<F>(&mut self, name: &str, func: F)
+    where
+        F: Fn(&World) -> f64 + Send + 'static,
+    {
+        self.custom_aggregates
+            .push((name.to_owned(), Box::new(func)));
+    }
+
     /// Get a reference to the current tick's change journal.
     pub fn journal(&self) -> &ChangeJournal {
         &self.journal
@@ -587,6 +645,7 @@ impl ManifestPipeline {
             entity_count_by_tier,
             entity_count_by_type,
             total_entity_count,
+            custom: HashMap::new(),
         }
     }
 }
@@ -1689,5 +1748,320 @@ mod tests {
                 .unwrap_or(&0),
             1
         );
+    }
+
+    // -- 18. Edge case: empty tick produces valid manifest ------------------
+
+    #[test]
+    fn edge_empty_tick_produces_valid_manifest() {
+        let world = setup_world();
+        let mut pipeline = ManifestPipeline::new();
+
+        pipeline.begin_tick();
+        // No commands at all -- no process_commands call.
+        let manifest = pipeline.end_tick(0, 0.0, vec![], &world);
+
+        assert_eq!(manifest.tick, 0);
+        assert!((manifest.sim_time - 0.0).abs() < f64::EPSILON);
+        assert!(manifest.entity_spawns.is_empty());
+        assert!(manifest.entity_despawns.is_empty());
+        assert!(manifest.component_changes.is_empty());
+        assert!(manifest.events.is_empty());
+        assert_eq!(manifest.commands_processed, 0);
+        assert_eq!(manifest.commands_succeeded, 0);
+        assert_eq!(manifest.aggregates.total_entity_count, 0);
+        assert!(manifest.aggregates.entity_count_by_tier.is_empty());
+        assert!(manifest.aggregates.entity_count_by_type.is_empty());
+        assert!(manifest.aggregates.custom.is_empty());
+        assert!(manifest.systems_executed.is_empty());
+
+        // Must serialize cleanly.
+        let json = serde_json::to_string(&manifest).unwrap();
+        let roundtrip: TickManifest = serde_json::from_str(&json).unwrap();
+        assert_eq!(roundtrip.tick, 0);
+        assert!(roundtrip.aggregates.custom.is_empty());
+    }
+
+    // -- 19. Edge case: manifest outside history window returns None --------
+
+    #[test]
+    fn edge_manifest_outside_window_returns_none() {
+        let world = setup_world();
+        let mut pipeline = ManifestPipeline::with_max_history(5);
+
+        // Run 10 ticks (0..9).
+        for tick in 0..10u64 {
+            pipeline.begin_tick();
+            pipeline.process_commands(&[], tick, &world);
+            pipeline.end_tick(tick, tick as f64 / 60.0, vec![], &world);
+        }
+
+        // Only ticks 5-9 should be in history.
+        assert_eq!(pipeline.history().len(), 5);
+
+        // Ticks 0-4 should be gone.
+        for tick in 0..5u64 {
+            assert!(
+                pipeline.manifest_at_tick(tick).is_none(),
+                "tick {} should have been evicted from history",
+                tick,
+            );
+        }
+
+        // Ticks 5-9 should exist.
+        for tick in 5..10u64 {
+            assert!(
+                pipeline.manifest_at_tick(tick).is_some(),
+                "tick {} should be present in history",
+                tick,
+            );
+        }
+    }
+
+    // -- 20. Edge case: manifests_since returns correct delta ---------------
+
+    #[test]
+    fn edge_manifests_since_returns_delta() {
+        let world = setup_world();
+        let mut pipeline = ManifestPipeline::new();
+
+        // Run 10 ticks (0..9).
+        for tick in 0..10u64 {
+            pipeline.begin_tick();
+            pipeline.process_commands(&[], tick, &world);
+            pipeline.end_tick(tick, tick as f64 / 60.0, vec![], &world);
+        }
+
+        // Query since tick 7: should get ticks 7, 8, 9.
+        let delta = pipeline.manifests_since(7);
+        assert_eq!(delta.len(), 3);
+        assert_eq!(delta[0].tick, 7);
+        assert_eq!(delta[1].tick, 8);
+        assert_eq!(delta[2].tick, 9);
+
+        // Query since tick 0: should get all 10 ticks.
+        let all = pipeline.manifests_since(0);
+        assert_eq!(all.len(), 10);
+
+        // Query since tick 10: should get nothing (no tick 10 exists).
+        let none = pipeline.manifests_since(10);
+        assert!(none.is_empty());
+
+        // Query since tick 9: should get exactly 1 manifest.
+        let last = pipeline.manifests_since(9);
+        assert_eq!(last.len(), 1);
+        assert_eq!(last[0].tick, 9);
+    }
+
+    // -- 21. Edge case: custom aggregate runs at end_tick -------------------
+
+    #[test]
+    fn edge_custom_aggregate_runs_at_end_tick() {
+        let mut world = setup_world();
+        let mut pipeline = ManifestPipeline::new();
+
+        // Register a custom aggregate that counts alive entities by querying
+        // the world's entity_count.
+        pipeline.register_aggregate("world_entity_count", |world| {
+            world.entity_count() as f64
+        });
+
+        // Register a second custom aggregate (constant value).
+        pipeline.register_aggregate("magic_number", |_world| 42.0);
+
+        // Tick 1: spawn 2 entities.
+        let mut buf = CommandBuffer::new();
+        buf.spawn_semantic(
+            player_identity(),
+            vec![],
+            SystemId::PLAYER_SPAWNER,
+            CausalReason::GameRule("spawn".to_owned()),
+        );
+        buf.spawn_semantic(
+            enemy_identity(),
+            vec![],
+            SystemId::WASM_GAMEPLAY,
+            CausalReason::GameRule("spawn".to_owned()),
+        );
+        let applied = buf.apply(&mut world);
+
+        pipeline.begin_tick();
+        pipeline.process_commands(&applied, 1, &world);
+        let manifest = pipeline.end_tick(1, 0.0, vec![], &world);
+
+        // Verify custom aggregates are present.
+        assert_eq!(manifest.aggregates.custom.len(), 2);
+        assert_eq!(
+            *manifest
+                .aggregates
+                .custom
+                .get("world_entity_count")
+                .unwrap(),
+            2.0,
+        );
+        assert_eq!(
+            *manifest.aggregates.custom.get("magic_number").unwrap(),
+            42.0,
+        );
+
+        // Verify custom aggregates survive JSON roundtrip.
+        let json = serde_json::to_string_pretty(&manifest).unwrap();
+        let roundtrip: TickManifest = serde_json::from_str(&json).unwrap();
+        assert_eq!(
+            *roundtrip
+                .aggregates
+                .custom
+                .get("world_entity_count")
+                .unwrap(),
+            2.0,
+        );
+        assert_eq!(
+            *roundtrip.aggregates.custom.get("magic_number").unwrap(),
+            42.0,
+        );
+    }
+
+    // -- 22. Edge case: causal chain with evicted predecessor ticks ----------
+
+    #[test]
+    fn edge_causal_chain_handles_evicted_predecessor() {
+        // Use a small history window so ticks get evicted.
+        let mut pipeline = ManifestPipeline::with_max_history(3);
+        let mut world = setup_world();
+
+        // Spawn an entity via command buffer.
+        let mut buf = CommandBuffer::new();
+        buf.spawn_semantic(
+            player_identity(),
+            vec![("health".to_owned(), serde_json::json!(100))],
+            SystemId(1),
+            CausalReason::GameRule("spawn".to_owned()),
+        );
+        let applied = buf.apply(&mut world);
+
+        // Tick 0: spawn + initial set
+        pipeline.begin_tick();
+        pipeline.process_commands(&applied, 0, &world);
+        pipeline.end_tick(0, 0.0, vec!["init".to_owned()], &world);
+
+        // Find the spawned entity.
+        let entity_id = *pipeline.entity_index().keys().next().unwrap();
+
+        // Ticks 1-4: modify health each tick to build a causal chain.
+        for tick in 1..=4u64 {
+            let mut buf2 = CommandBuffer::new();
+            buf2.set_component(
+                entity_id,
+                "health",
+                serde_json::json!(100 - tick * 10),
+                SystemId(2),
+                CausalReason::GameRule(format!("damage_tick_{tick}")),
+            );
+            let applied2 = buf2.apply(&mut world);
+            pipeline.begin_tick();
+            pipeline.process_commands(&applied2, tick, &world);
+            pipeline.end_tick(tick, tick as f64 * 0.016, vec!["damage".to_owned()], &world);
+        }
+
+        // With max_history=3, only ticks 2,3,4 should remain.
+        assert!(pipeline.manifest_at_tick(0).is_none(), "tick 0 should be evicted");
+        assert!(pipeline.manifest_at_tick(1).is_none(), "tick 1 should be evicted");
+        assert!(pipeline.manifest_at_tick(2).is_some());
+
+        // Build causal chain from the latest change (tick 4).
+        let tick4_manifest = pipeline.manifest_at_tick(4).unwrap();
+        let health_change = tick4_manifest
+            .component_changes
+            .iter()
+            .find(|c| c.component_type_name == "health")
+            .expect("should have health change at tick 4");
+
+        let chain = pipeline.build_causal_chain(health_change);
+
+        // Chain should NOT panic even though ticks 0-1 are evicted.
+        // It should contain steps for ticks 4, 3, 2 (within the window).
+        assert!(!chain.steps.is_empty(), "chain should have steps");
+        assert_eq!(chain.steps[0].tick, 4, "first step should be the change itself");
+        // Steps beyond the evicted window are simply absent, not errors.
+        assert!(
+            chain.steps.len() <= 4,
+            "chain should only contain steps from available history"
+        );
+    }
+
+    // -- 23. Edge case: entity index tracks re-use after despawn + respawn ---
+
+    #[test]
+    fn edge_entity_index_tracks_despawn_and_respawn() {
+        let mut pipeline = ManifestPipeline::new();
+        let mut world = setup_world();
+
+        // Tick 0: Spawn entity A.
+        let mut buf = CommandBuffer::new();
+        buf.spawn_semantic(
+            player_identity(),
+            vec![("health".to_owned(), serde_json::json!(100))],
+            SystemId(1),
+            CausalReason::GameRule("spawn_player".to_owned()),
+        );
+        let applied = buf.apply(&mut world);
+        pipeline.begin_tick();
+        pipeline.process_commands(&applied, 0, &world);
+        pipeline.end_tick(0, 0.0, vec!["init".to_owned()], &world);
+
+        let entity_a = *pipeline.entity_index().keys().next().unwrap();
+
+        // Verify entity A is alive in the index.
+        assert!(pipeline.entity_index()[&entity_a].alive);
+        assert_eq!(pipeline.entity_index()[&entity_a].spawned_at_tick, 0);
+
+        // Tick 1: Despawn entity A.
+        let mut buf2 = CommandBuffer::new();
+        buf2.despawn(
+            entity_a,
+            SystemId(1),
+            CausalReason::GameRule("kill_player".to_owned()),
+        );
+        let applied2 = buf2.apply(&mut world);
+        pipeline.begin_tick();
+        pipeline.process_commands(&applied2, 1, &world);
+        pipeline.end_tick(1, 0.016, vec!["reaper".to_owned()], &world);
+
+        // Entity A should be marked dead in the index.
+        assert!(!pipeline.entity_index()[&entity_a].alive);
+        assert_eq!(pipeline.entity_index()[&entity_a].despawned_at_tick, Some(1));
+
+        // Tick 2: Spawn entity B (new entity, possibly reusing the same ECS slot).
+        let mut buf3 = CommandBuffer::new();
+        buf3.spawn_semantic(
+            enemy_identity(),
+            vec![("health".to_owned(), serde_json::json!(50))],
+            SystemId(1),
+            CausalReason::GameRule("spawn_enemy".to_owned()),
+        );
+        let applied3 = buf3.apply(&mut world);
+        pipeline.begin_tick();
+        pipeline.process_commands(&applied3, 2, &world);
+        pipeline.end_tick(2, 0.032, vec!["spawner".to_owned()], &world);
+
+        // Entity index should track both entities (even if one is dead).
+        assert!(
+            pipeline.entity_index().len() >= 2,
+            "entity index should track both the dead and new entity"
+        );
+
+        // Entity A should still be dead.
+        assert!(!pipeline.entity_index()[&entity_a].alive);
+
+        // The new entity (B) should be alive.
+        let entity_b = pipeline
+            .entity_index()
+            .keys()
+            .find(|&&id| id != entity_a)
+            .expect("should have a second entity");
+        assert!(pipeline.entity_index()[entity_b].alive);
+        assert_eq!(pipeline.entity_index()[entity_b].spawned_at_tick, 2);
+        assert_eq!(pipeline.entity_index()[entity_b].entity_type, "character");
+        assert_eq!(pipeline.entity_index()[entity_b].role, "enemy");
     }
 }
