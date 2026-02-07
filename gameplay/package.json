@@ -1,0 +1,12 @@
+{
+  "name": "nomai-gameplay",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "npx asc assembly/index.ts --outFile build/gameplay.wasm --optimize --exportRuntime",
+    "build:debug": "npx asc assembly/index.ts --outFile build/gameplay.debug.wasm --debug --sourceMap --exportRuntime"
+  },
+  "devDependencies": {
+    "assemblyscript": "0.27.32"
+  }
+}

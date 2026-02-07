@@ -198,6 +198,34 @@ pub fn register_host_api(linker: &mut Linker<HostState>) -> Result<(), anyhow::E
 
     linker.func_wrap("nomai", "log", host_log)?;
 
+    // -- AssemblyScript runtime support ---------------------------------------
+    // AS modules import `env.abort` for runtime assertions (null checks,
+    // bounds checks, etc.). We provide a minimal implementation that logs the
+    // abort and traps. The parameters are pointers into AS's managed memory
+    // (message and filename are UTF-16 encoded AS strings), so we just log
+    // the raw pointer values and trap.
+
+    linker.func_wrap(
+        "env",
+        "abort",
+        |_caller: Caller<'_, HostState>,
+         message_ptr: i32,
+         filename_ptr: i32,
+         line: i32,
+         column: i32| {
+            tracing::error!(
+                message_ptr,
+                filename_ptr,
+                line,
+                column,
+                "AssemblyScript abort triggered"
+            );
+            // We intentionally do NOT panic here. The WASM module will
+            // hit an `unreachable` instruction after abort returns, which
+            // Wasmtime will catch as a trap. This is the correct behavior.
+        },
+    )?;
+
     Ok(())
 }
 

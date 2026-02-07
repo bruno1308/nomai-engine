@@ -34,3 +34,15 @@ ci: fmt-check clippy test
 # Quick workspace-wide type/syntax check (no codegen)
 check:
     cargo check --workspace
+
+# Install gameplay AssemblyScript dependencies
+install-gameplay:
+    cd gameplay && npm install
+
+# Compile AssemblyScript gameplay to WASM
+build-gameplay:
+    cd gameplay && npm run build
+
+# Compile AssemblyScript gameplay to WASM (debug mode with source maps)
+build-gameplay-debug:
+    cd gameplay && npm run build:debug

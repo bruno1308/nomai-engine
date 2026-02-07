@@ -37,6 +37,7 @@
 #![deny(unsafe_code)]
 
 pub mod host_api;
+pub mod integration;
 mod module;
 
 pub use host_api::HostState;
@@ -599,6 +600,72 @@ mod host_api_tests {
         assert!(module.host_state().commands.is_empty());
     }
 
+    // -- B4: Load AS-compiled module (requires `just build-gameplay`) -------
+
+    #[test]
+    #[ignore] // Requires npm + AS build; run with `cargo test -- --ignored`
+    fn load_assemblyscript_gameplay_module() {
+        let wasm_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("..")
+            .join("gameplay")
+            .join("build")
+            .join("gameplay.wasm");
+
+        let wasm = std::fs::read(&wasm_path).unwrap_or_else(|e| {
+            panic!(
+                "AS gameplay.wasm not found at {} -- run `just build-gameplay` first: {}",
+                wasm_path.display(),
+                e
+            )
+        });
+
+        let config = WasmConfig::default();
+        let mut module = WasmModule::from_bytes(&config, &wasm).unwrap();
+
+        // Set up host state before tick.
+        module.host_state_mut().begin_tick(1, 0.016);
+        module.host_state_mut().entity_count = 3;
+
+        // Execute tick.
+        let fuel = module.call_tick().unwrap();
+        assert!(fuel > 0, "AS module should consume fuel");
+
+        // Check that commands were emitted (set_component for position).
+        let cmds = module.drain_commands();
+        assert!(
+            !cmds.is_empty(),
+            "AS module should emit at least one command (set_component for position)"
+        );
+
+        // Verify the command is a SetComponent targeting entity 0 with
+        // component name "position" and reason "move_right_each_tick".
+        let commands = cmds.commands();
+        let cmd = &commands[0];
+        assert_eq!(
+            cmd.issued_by,
+            nomai_ecs::identity::SystemId::WASM_GAMEPLAY,
+            "command must be issued by SystemId::WASM_GAMEPLAY"
+        );
+        assert_eq!(
+            cmd.reason,
+            nomai_ecs::command::CausalReason::GameRule("move_right_each_tick".to_owned()),
+            "command reason must carry the AS-provided reason string"
+        );
+        match &cmd.kind {
+            nomai_ecs::command::CommandKind::SetComponent {
+                component_name,
+                value,
+            } => {
+                assert_eq!(component_name, "position");
+                // tick=1, so x=1.0
+                let x = value.get("x").expect("position should have x");
+                assert_eq!(*x, serde_json::json!(1.0));
+            }
+            other => panic!("expected SetComponent, got: {other:?}"),
+        }
+    }
+
     // -- B2 Test 10: snapshot_world populates entity_components -------------
 
     #[test]
@@ -625,6 +692,264 @@ mod host_api_tests {
         assert_eq!(
             entity_components.get("health"),
             Some(&serde_json::json!(100))
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// B5 Tests -- Causality Across WASM Boundary
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod integration_tests {
+    use super::*;
+    use nomai_ecs::command::CausalReason;
+    use nomai_ecs::identity::SystemId;
+    use nomai_ecs::world::World;
+    use nomai_manifest::manifest::ManifestPipeline;
+
+    /// Helper: load a WAT fixture file from the tests/fixtures directory.
+    fn fixture_bytes(name: &str) -> Vec<u8> {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests")
+            .join("fixtures")
+            .join(name);
+        std::fs::read(&path)
+            .unwrap_or_else(|e| panic!("failed to read fixture {}: {}", path.display(), e))
+    }
+
+    // -- Component type for tests --
+
+    #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+    struct Health(i32);
+
+    // -- B5 Test 1: Full causal chain traces through WASM boundary -----------
+
+    #[test]
+    fn causal_chain_traces_through_wasm_boundary() {
+        // Setup world with a registered "health" component.
+        let mut world = World::new();
+        world.register_component::<Health>("health");
+
+        // Spawn an entity. The first entity gets EntityId(index=0, gen=0),
+        // which has to_raw() == 0. The causality_test.wat targets entity_id=0.
+        let entity = world.spawn_with(Health(100));
+        assert_eq!(
+            entity.to_raw(),
+            0,
+            "first spawned entity should have raw id 0"
+        );
+
+        // Setup manifest pipeline.
+        let mut manifest = ManifestPipeline::new();
+
+        // Load WASM module from the causality test fixture.
+        let config = WasmConfig::default();
+        let bytes = fixture_bytes("causality_test.wat");
+        let mut module = WasmModule::from_bytes(&config, &bytes).unwrap();
+
+        // Run a tick through the full pipeline.
+        let (tick_manifest, cmd_count) = crate::integration::run_wasm_tick(
+            &mut module,
+            &mut world,
+            &mut manifest,
+            1,
+            1.0 / 60.0,
+        )
+        .unwrap();
+
+        // Verify commands were emitted and applied.
+        assert!(cmd_count > 0, "WASM should have emitted commands");
+
+        // Verify manifest has component changes.
+        assert!(
+            !tick_manifest.component_changes.is_empty(),
+            "manifest should record component changes from WASM"
+        );
+
+        // Find the health component change.
+        let health_change = tick_manifest
+            .component_changes
+            .iter()
+            .find(|c| c.component_type_name == "health")
+            .expect("should have a health component change");
+
+        // Verify system ID is WASM_GAMEPLAY.
+        assert_eq!(
+            health_change.changed_by,
+            SystemId::WASM_GAMEPLAY,
+            "component change should be attributed to WASM_GAMEPLAY"
+        );
+
+        // Verify causal reason carries the WASM reason string.
+        assert_eq!(
+            health_change.reason,
+            CausalReason::GameRule("wasm_causality_test".to_owned()),
+            "causal reason should carry the WASM-provided reason string"
+        );
+
+        // Build causal chain from the manifest.
+        let chain = manifest.build_causal_chain(health_change);
+        assert!(
+            !chain.steps.is_empty(),
+            "causal chain should have at least one step"
+        );
+        assert_eq!(
+            chain.steps[0].system_id,
+            SystemId::WASM_GAMEPLAY,
+            "first step in causal chain should be WASM_GAMEPLAY"
+        );
+        assert_eq!(
+            chain.steps[0].reason,
+            CausalReason::GameRule("wasm_causality_test".to_owned()),
+            "causal chain step should carry the reason"
+        );
+    }
+
+    // -- B5 Test 2: Multiple ticks build causal history ----------------------
+
+    #[test]
+    fn multiple_ticks_build_causal_history() {
+        let mut world = World::new();
+        world.register_component::<Health>("health");
+        let entity = world.spawn_with(Health(100));
+        assert_eq!(entity.to_raw(), 0);
+
+        let mut manifest = ManifestPipeline::new();
+        let config = WasmConfig::default();
+        let bytes = fixture_bytes("causality_test.wat");
+        let mut module = WasmModule::from_bytes(&config, &bytes).unwrap();
+
+        // Run multiple ticks through the full pipeline.
+        for tick in 1..=5 {
+            let (_, cmd_count) = crate::integration::run_wasm_tick(
+                &mut module,
+                &mut world,
+                &mut manifest,
+                tick,
+                tick as f64 / 60.0,
+            )
+            .unwrap();
+            assert!(cmd_count > 0, "tick {tick} should apply commands");
+        }
+
+        // Get the last tick's manifest and build chain.
+        let last_manifest = manifest
+            .manifest_at_tick(5)
+            .expect("tick 5 should be in history");
+        let change = last_manifest
+            .component_changes
+            .iter()
+            .find(|c| c.component_type_name == "health")
+            .expect("should have health component change at tick 5");
+
+        let chain = manifest.build_causal_chain(change);
+
+        // Should have steps from tick 5 (the change itself) + prior ticks.
+        // Ticks 1-4 each changed "health" on the same entity, so the chain
+        // should trace back through all of them.
+        assert!(
+            chain.steps.len() >= 2,
+            "causal chain should span multiple ticks, got {} steps",
+            chain.steps.len()
+        );
+
+        // All steps should be WASM_GAMEPLAY.
+        for step in &chain.steps {
+            assert_eq!(
+                step.system_id,
+                SystemId::WASM_GAMEPLAY,
+                "all causal chain steps should be WASM_GAMEPLAY"
+            );
+        }
+
+        // First step should be from tick 5 (most recent), last from tick 1 (oldest).
+        assert_eq!(chain.steps[0].tick, 5, "first step should be tick 5");
+        assert_eq!(
+            chain.steps.last().unwrap().tick,
+            1,
+            "last step should be tick 1"
+        );
+    }
+
+    // -- B5 Test 3: Manifest records systems_executed ------------------------
+
+    #[test]
+    fn manifest_records_systems_executed() {
+        let mut world = World::new();
+        world.register_component::<Health>("health");
+        let _entity = world.spawn_with(Health(100));
+
+        let mut manifest = ManifestPipeline::new();
+        let config = WasmConfig::default();
+        let bytes = fixture_bytes("causality_test.wat");
+        let mut module = WasmModule::from_bytes(&config, &bytes).unwrap();
+
+        let (tick_manifest, _) = crate::integration::run_wasm_tick(
+            &mut module,
+            &mut world,
+            &mut manifest,
+            1,
+            0.016,
+        )
+        .unwrap();
+
+        assert!(
+            tick_manifest
+                .systems_executed
+                .contains(&"wasm_gameplay".to_owned()),
+            "manifest should record wasm_gameplay in systems_executed"
+        );
+    }
+
+    // -- B5 Test 4: WASM events appear in manifest ---------------------------
+
+    #[test]
+    fn wasm_events_appear_in_manifest() {
+        let mut world = World::new();
+        world.register_component::<Health>("health");
+        let _entity = world.spawn_with(Health(100));
+
+        let mut manifest = ManifestPipeline::new();
+        let config = WasmConfig::default();
+        let bytes = fixture_bytes("causality_test.wat");
+        let mut module = WasmModule::from_bytes(&config, &bytes).unwrap();
+
+        // Manually inject an event to simulate WASM emitting one.
+        // (The causality_test.wat does not call emit_event, so we inject
+        // directly into the host state to test the event path through
+        // the integration orchestrator.)
+        use nomai_manifest::manifest::GameEvent;
+        module.host_state_mut().events.push(GameEvent {
+            event_type: "test_event".to_owned(),
+            description: "WASM emitted test event".to_owned(),
+            involved_entities: vec![],
+            caused_by: SystemId::WASM_GAMEPLAY,
+            reason: CausalReason::GameRule("test_reason".to_owned()),
+            tick: 1,
+        });
+
+        let (tick_manifest, _) = crate::integration::run_wasm_tick(
+            &mut module,
+            &mut world,
+            &mut manifest,
+            1,
+            0.016,
+        )
+        .unwrap();
+
+        assert!(
+            !tick_manifest.events.is_empty(),
+            "manifest should include events from WASM"
+        );
+        assert_eq!(
+            tick_manifest.events[0].event_type, "test_event",
+            "event type should match"
+        );
+        assert_eq!(
+            tick_manifest.events[0].caused_by,
+            SystemId::WASM_GAMEPLAY,
+            "event should be attributed to WASM_GAMEPLAY"
         );
     }
 }
