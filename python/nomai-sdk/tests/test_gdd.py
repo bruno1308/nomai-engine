@@ -739,23 +739,28 @@ class TestIntentGenerator:
         gen = IntentGenerator()
         suite = gen.generate(spec)
         invariants = [i for i in suite.intents if i.kind == IntentKind.INVARIANT]
-        bounds_invariants = [i for i in invariants if "bounds" in i.name]
-        # paddle has y bounds, ball has x+y bounds = at least 2 (possibly more per axis)
-        assert len(bounds_invariants) >= 2
+        bounds_invariants = [
+            i for i in invariants if i.name.endswith("_x_bounds") or i.name.endswith("_y_bounds")
+        ]
+        # paddle has y bounds (1), ball has x+y bounds (2) = 3 total
+        assert len(bounds_invariants) == 3
 
     def test_generates_speed_metrics(self) -> None:
         spec = _make_breakout_spec()
         gen = IntentGenerator()
         suite = gen.generate(spec)
         metrics = [i for i in suite.intents if i.kind == IntentKind.METRIC]
-        assert len(metrics) >= 1  # at least ball speed
+        # paddle speed_max=8.0 -> 2 (dx,dy), ball speed_max=10.0 -> 2 (dx,dy) = 4
+        assert len(metrics) == 4
 
     def test_generates_interaction_behaviors(self) -> None:
         spec = _make_breakout_spec()
         gen = IntentGenerator()
         suite = gen.generate(spec)
         behaviors = [i for i in suite.intents if i.kind == IntentKind.BEHAVIOR]
-        assert len(behaviors) >= 3  # ball-paddle, ball-brick, ball-wall
+        # ball-paddle (bounce), ball-brick (destroy), ball-wall (bounce) = 3
+        # paddle-brick (none) is skipped
+        assert len(behaviors) == 3
 
     def test_generates_degenerate_state_invariants(self) -> None:
         spec = _make_breakout_spec()
@@ -783,3 +788,80 @@ class TestIntentGenerator:
         gen = IntentGenerator()
         suite = gen.generate(spec)
         assert len(suite.intents) == 0
+
+    def test_generates_spec_invariants(self) -> None:
+        """Explicit InvariantSpec entries produce INVARIANT intents."""
+        spec = _make_breakout_spec()
+        gen = IntentGenerator()
+        suite = gen.generate(spec)
+        invariants = [i for i in suite.intents if i.kind == IntentKind.INVARIANT]
+        inv = [i for i in invariants if "invariant_ball_in_bounds" in i.name]
+        assert len(inv) == 1
+        # Condition is passed through from the InvariantSpec as-is
+        assert inv[0].condition == ">= 0 and <= 800"
+
+    def test_reflect_and_destroy_generates_composite_expected(self) -> None:
+        """reflect_and_destroy generates both bounce + despawn."""
+        spec = GameDesignSpec(
+            title="Test",
+            entities=(
+                EntitySpec(name="ball", entity_type="projectile", role="ball",
+                           body_type="dynamic", required_components=("position",)),
+                EntitySpec(name="brick", entity_type="obstacle", role="brick",
+                           body_type="static", required_components=("position",)),
+            ),
+            interactions=(
+                InteractionSpec(
+                    entity_a="ball", entity_b="brick",
+                    behavior="reflect_and_destroy",
+                    description="Ball reflects and destroys brick",
+                ),
+            ),
+        )
+        gen = IntentGenerator()
+        suite = gen.generate(spec)
+        behaviors = [i for i in suite.intents if i.kind == IntentKind.BEHAVIOR]
+        assert len(behaviors) == 1
+        # Expected should be ALL composite (reflect + despawn)
+        expected = behaviors[0].expected
+        assert expected is not None
+        assert len(expected.children) == 2
+
+    def test_behavior_none_is_skipped(self) -> None:
+        """Interactions with behavior 'none' produce no intent."""
+        spec = GameDesignSpec(
+            title="Test",
+            entities=(
+                EntitySpec(name="a", entity_type="t", role="r",
+                           body_type="kinematic", required_components=()),
+                EntitySpec(name="b", entity_type="t", role="r",
+                           body_type="static", required_components=()),
+            ),
+            interactions=(
+                InteractionSpec(entity_a="a", entity_b="b",
+                                behavior="none"),
+            ),
+        )
+        gen = IntentGenerator()
+        suite = gen.generate(spec)
+        behaviors = [i for i in suite.intents if i.kind == IntentKind.BEHAVIOR]
+        assert len(behaviors) == 0
+
+    def test_behavior_intent_uses_lowered_name(self) -> None:
+        """Behavior intent name uses lowered behavior string."""
+        spec = GameDesignSpec(
+            title="Test",
+            entities=(
+                EntitySpec(name="a", entity_type="t", role="r",
+                           body_type="dynamic", required_components=()),
+            ),
+            interactions=(
+                InteractionSpec(entity_a="a", entity_b="b",
+                                behavior="Bounce"),
+            ),
+        )
+        gen = IntentGenerator()
+        suite = gen.generate(spec)
+        behaviors = [i for i in suite.intents if i.kind == IntentKind.BEHAVIOR]
+        assert len(behaviors) == 1
+        assert behaviors[0].name == "a_b_bounce"

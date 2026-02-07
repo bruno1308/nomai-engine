@@ -20,6 +20,7 @@ from nomai.intents import (
     IntentKind,
     IntentSpec,
     VerificationSuite,
+    all_,
     collision,
     component_changed,
     entity_despawned,
@@ -698,6 +699,11 @@ class CompletenessChecker:
 # IntentGenerator
 # ---------------------------------------------------------------------------
 
+_BOUNCE_BEHAVIORS: frozenset[str] = frozenset({"bounce", "reflect"})
+_DESTROY_BEHAVIORS: frozenset[str] = frozenset({"destroy"})
+_REFLECT_AND_DESTROY_BEHAVIORS: frozenset[str] = frozenset({"reflect_and_destroy"})
+
+
 class IntentGenerator:
     """Compiles a GameDesignSpec into a VerificationSuite.
 
@@ -719,6 +725,7 @@ class IntentGenerator:
         intents.extend(self._bounds_invariants(spec))
         intents.extend(self._speed_metrics(spec))
         intents.extend(self._interaction_behaviors(spec))
+        intents.extend(self._spec_invariants(spec))
         intents.extend(self._degenerate_invariants(spec))
         return VerificationSuite(
             name=f"{spec.title.lower().replace(' ', '_')}_verification",
@@ -818,9 +825,6 @@ class IntentGenerator:
         Skips interactions with behavior 'none'.
         """
         intents: list[IntentSpec] = []
-        _BOUNCE_BEHAVIORS = {"bounce", "reflect"}
-        _DESTROY_BEHAVIORS = {"destroy", "reflect_and_destroy"}
-
         for interaction in spec.interactions:
             behavior = interaction.behavior.lower()
             if behavior == "none":
@@ -828,7 +832,12 @@ class IntentGenerator:
 
             trigger = collision(interaction.entity_a, interaction.entity_b)
 
-            if behavior in _BOUNCE_BEHAVIORS:
+            if behavior in _REFLECT_AND_DESTROY_BEHAVIORS:
+                expected = all_(
+                    component_changed(interaction.entity_a, "velocity"),
+                    entity_despawned(interaction.entity_b),
+                )
+            elif behavior in _BOUNCE_BEHAVIORS:
                 expected = component_changed(interaction.entity_a, "velocity")
             elif behavior in _DESTROY_BEHAVIORS:
                 expected = entity_despawned(interaction.entity_b)
@@ -838,11 +847,11 @@ class IntentGenerator:
 
             name = (
                 f"{interaction.entity_a}_{interaction.entity_b}"
-                f"_{interaction.behavior}"
+                f"_{behavior}"
             )
             description = interaction.description or (
                 f"When {interaction.entity_a} collides with "
-                f"{interaction.entity_b}: {interaction.behavior}"
+                f"{interaction.entity_b}: {behavior}"
             )
 
             intents.append(
@@ -857,10 +866,42 @@ class IntentGenerator:
             )
         return intents
 
+    def _spec_invariants(self, spec: GameDesignSpec) -> list[IntentSpec]:
+        """Generate INVARIANT intents from explicit InvariantSpec entries.
+
+        Passes through the condition string as-is so it is evaluated by
+        the verifier's existing dispatch (``aggregate:``,
+        ``entity_count``, ``component_range:``, or free-form fallback).
+        """
+        intents: list[IntentSpec] = []
+        for inv in spec.invariants:
+            intents.append(
+                IntentSpec(
+                    name=f"invariant_{inv.name}",
+                    kind=IntentKind.INVARIANT,
+                    description=inv.description or (
+                        f"Invariant: {inv.entity}.{inv.component}.{inv.field} "
+                        f"{inv.condition}"
+                    ),
+                    condition=inv.condition,
+                )
+            )
+        return intents
+
     def _degenerate_invariants(self, spec: GameDesignSpec) -> list[IntentSpec]:
-        """Generate INVARIANT intents for degenerate state guards."""
+        """Generate INVARIANT intents for degenerate state guards.
+
+        Degenerate state intents use free-form conditions that pass
+        trivially in the spike verifier.  They serve as documentation
+        in the generated suite and will be evaluated once the verifier
+        supports expression-based invariants (post-MVP).
+        """
         intents: list[IntentSpec] = []
         for degen in spec.degenerate_states:
+            # TODO(post-MVP): The verifier cannot evaluate degenerate_guard
+            # conditions yet.  These pass trivially via the free-form
+            # fallback.  Once expression-based invariant evaluation lands,
+            # replace with a proper negation of degen.condition.
             intents.append(
                 IntentSpec(
                     name=f"degenerate_{degen.name}",
@@ -872,7 +913,7 @@ class IntentGenerator:
                     ),
                     condition=(
                         f"degenerate_guard:{degen.entity}.{degen.component}"
-                        f".{degen.field} != 0"
+                        f".{degen.field} must_not {degen.condition}"
                     ),
                 )
             )
