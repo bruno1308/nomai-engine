@@ -13,6 +13,7 @@ import pytest
 from nomai.gdd import (
     BoundsSpec,
     ClarificationQuestion,
+    CompletenessChecker,
     DegenerateStateSpec,
     EntitySpec,
     GameDesignSpec,
@@ -29,8 +30,10 @@ from nomai.gdd import (
 def _make_breakout_spec() -> GameDesignSpec:
     """Build a complete breakout GDD spec for testing.
 
-    Contains 3 entities (paddle, ball, brick), 3 interactions,
-    1 invariant, and 1 degenerate state.
+    Contains 3 entities (paddle, ball, brick), 4 interactions,
+    1 invariant, and 1 degenerate state.  Every dynamic/kinematic entity
+    has bounds and speed_max, and every movable entity pair has an
+    interaction defined.
     """
     return GameDesignSpec(
         title="Breakout",
@@ -81,6 +84,12 @@ def _make_breakout_spec() -> GameDesignSpec:
                 entity_b="wall",
                 behavior="bounce",
                 description="Ball bounces off walls",
+            ),
+            InteractionSpec(
+                entity_a="paddle",
+                entity_b="brick",
+                behavior="none",
+                description="Paddle and brick do not interact directly",
             ),
         ),
         invariants=(
@@ -399,7 +408,7 @@ class TestGameDesignSpec:
         assert isinstance(parsed, dict)
         assert parsed["title"] == "Breakout"
         assert len(parsed["entities"]) == 3
-        assert len(parsed["interactions"]) == 3
+        assert len(parsed["interactions"]) == 4
         assert len(parsed["invariants"]) == 1
         assert len(parsed["degenerate_states"]) == 1
 
@@ -426,9 +435,9 @@ class TestGameDesignSpec:
         assert names == ("paddle", "ball", "brick")
 
     def test_breakout_spec_interaction_count(self) -> None:
-        """Breakout spec has exactly 3 interactions."""
+        """Breakout spec has exactly 4 interactions."""
         spec = _make_breakout_spec()
-        assert len(spec.interactions) == 3
+        assert len(spec.interactions) == 4
 
     def test_breakout_spec_invariant_count(self) -> None:
         """Breakout spec has exactly 1 invariant."""
@@ -603,3 +612,107 @@ class TestNullHandling:
         })
         spec = InteractionSpec.from_json(json_str)
         assert spec.description == ""
+
+
+# ---------------------------------------------------------------------------
+# CompletenessChecker
+# ---------------------------------------------------------------------------
+
+class TestCompletenessChecker:
+    """Tests for CompletenessChecker gap detection."""
+
+    def test_complete_spec_has_no_questions(self) -> None:
+        """A fully specified breakout spec produces zero clarification questions."""
+        spec = _make_breakout_spec()
+        checker = CompletenessChecker()
+        questions = checker.check(spec)
+        assert len(questions) == 0
+
+    def test_missing_bounds_on_dynamic_entity(self) -> None:
+        """Dynamic entity without bounds triggers a bounds question."""
+        spec = GameDesignSpec(
+            title="Test",
+            description="Test",
+            play_area=PlayAreaSpec(width=800.0, height=600.0),
+            entities=(
+                EntitySpec(name="ball", entity_type="projectile", role="ball",
+                           body_type="dynamic", required_components=("position",)),
+            ),
+        )
+        checker = CompletenessChecker()
+        questions = checker.check(spec)
+        bound_qs = [q for q in questions if q.category == "bounds"]
+        assert len(bound_qs) >= 1
+        assert "ball" in bound_qs[0].question.lower()
+
+    def test_missing_interaction_pair(self) -> None:
+        """Two dynamic/kinematic entities with no interaction spec."""
+        spec = GameDesignSpec(
+            title="Test",
+            description="Test",
+            play_area=PlayAreaSpec(width=800.0, height=600.0),
+            entities=(
+                EntitySpec(name="ball", entity_type="projectile", role="ball",
+                           body_type="dynamic", required_components=("position",)),
+                EntitySpec(name="paddle", entity_type="character", role="paddle",
+                           body_type="kinematic", required_components=("position",)),
+            ),
+        )
+        checker = CompletenessChecker()
+        questions = checker.check(spec)
+        interaction_qs = [q for q in questions if q.category == "interaction"]
+        assert len(interaction_qs) >= 1
+
+    def test_missing_speed_limit(self) -> None:
+        """Dynamic entity without speed_max."""
+        spec = GameDesignSpec(
+            title="Test",
+            description="Test",
+            play_area=PlayAreaSpec(width=800.0, height=600.0),
+            entities=(
+                EntitySpec(name="ball", entity_type="projectile", role="ball",
+                           body_type="dynamic",
+                           bounds=BoundsSpec(x_min=0, x_max=800, y_min=0, y_max=600),
+                           required_components=("position",)),
+            ),
+        )
+        checker = CompletenessChecker()
+        questions = checker.check(spec)
+        speed_qs = [q for q in questions if q.category == "invariant"]
+        assert any("speed" in q.question.lower() for q in speed_qs)
+
+    def test_no_play_area_asks_question(self) -> None:
+        """Missing play area triggers a bounds question about play area."""
+        spec = GameDesignSpec(
+            title="Test",
+            description="Test",
+            play_area=None,
+            entities=(
+                EntitySpec(name="ball", entity_type="projectile", role="ball",
+                           body_type="dynamic", required_components=("position",)),
+            ),
+        )
+        checker = CompletenessChecker()
+        questions = checker.check(spec)
+        area_qs = [q for q in questions if q.category == "bounds"]
+        assert any("play area" in q.question.lower() for q in area_qs)
+
+    def test_no_degenerate_states_asks_question(self) -> None:
+        """Empty degenerate_states triggers a degenerate question."""
+        spec = GameDesignSpec(
+            title="Test",
+            description="Test",
+            play_area=PlayAreaSpec(width=800.0, height=600.0),
+            entities=(
+                EntitySpec(name="ball", entity_type="projectile", role="ball",
+                           body_type="dynamic",
+                           bounds=BoundsSpec(x_min=0, x_max=800, y_min=0, y_max=600),
+                           speed_max=500.0,
+                           required_components=("position",)),
+            ),
+            degenerate_states=(),
+        )
+        checker = CompletenessChecker()
+        questions = checker.check(spec)
+        degen_qs = [q for q in questions if q.category == "degenerate"]
+        assert len(degen_qs) >= 1

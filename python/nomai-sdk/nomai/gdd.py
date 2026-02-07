@@ -513,6 +513,179 @@ class GameDesignSpec:
 
 
 # ---------------------------------------------------------------------------
+# CompletenessChecker
+# ---------------------------------------------------------------------------
+
+class CompletenessChecker:
+    """Validates a GameDesignSpec for gaps and missing constraints.
+
+    Analyzes a game design specification and returns a list of
+    :class:`ClarificationQuestion` instances for every gap found.
+
+    Checks:
+    - Every dynamic/kinematic entity has bounds defined
+    - Every movable entity pair has an interaction specified
+    - Every dynamic entity has a speed limit
+    - Play area is defined
+    - At least one degenerate state is identified
+    """
+
+    def check(self, spec: GameDesignSpec) -> list[ClarificationQuestion]:
+        """Run all completeness checks and return questions for gaps found.
+
+        Args:
+            spec: The game design specification to validate.
+
+        Returns:
+            A list of clarification questions, one per gap detected.
+            An empty list indicates the spec is complete.
+        """
+        questions: list[ClarificationQuestion] = []
+        questions.extend(self._check_play_area(spec))
+        questions.extend(self._check_entity_bounds(spec))
+        questions.extend(self._check_interaction_matrix(spec))
+        questions.extend(self._check_speed_limits(spec))
+        questions.extend(self._check_degenerate_states(spec))
+        return questions
+
+    def _check_play_area(self, spec: GameDesignSpec) -> list[ClarificationQuestion]:
+        """Check that the play area dimensions are defined."""
+        if spec.play_area is None:
+            logger.debug("CompletenessChecker: play area is not defined")
+            return [
+                ClarificationQuestion(
+                    question="What are the play area dimensions?",
+                    category="bounds",
+                    severity="high",
+                    context="No play area defined in the game design spec.",
+                ),
+            ]
+        return []
+
+    def _check_entity_bounds(
+        self, spec: GameDesignSpec,
+    ) -> list[ClarificationQuestion]:
+        """Check that every dynamic/kinematic entity has bounds defined."""
+        questions: list[ClarificationQuestion] = []
+        for entity in spec.entities:
+            if entity.body_type in ("dynamic", "kinematic") and entity.bounds is None:
+                logger.debug(
+                    "CompletenessChecker: entity %r (%s) has no bounds",
+                    entity.name, entity.body_type,
+                )
+                questions.append(
+                    ClarificationQuestion(
+                        question=(
+                            f"What are the bounds for the {entity.name} entity? "
+                            f"It is {entity.body_type} but has no bounds defined."
+                        ),
+                        category="bounds",
+                        severity="high",
+                        context=(
+                            f"Entity '{entity.name}' has body_type='{entity.body_type}' "
+                            f"but no BoundsSpec is set."
+                        ),
+                    ),
+                )
+        return questions
+
+    def _check_interaction_matrix(
+        self, spec: GameDesignSpec,
+    ) -> list[ClarificationQuestion]:
+        """Check that every pair of movable entities has an interaction defined.
+
+        A pair requires an interaction if at least one entity in the pair
+        has body_type 'dynamic' or 'kinematic'.  Interactions are checked
+        in both directions (entity_a/entity_b is order-independent).
+        """
+        movable_types = {"dynamic", "kinematic"}
+
+        # Build a set of interaction pairs (order-independent)
+        interaction_pairs: set[frozenset[str]] = set()
+        for interaction in spec.interactions:
+            interaction_pairs.add(frozenset((interaction.entity_a, interaction.entity_b)))
+
+        questions: list[ClarificationQuestion] = []
+        entities = list(spec.entities)
+        for i in range(len(entities)):
+            for j in range(i + 1, len(entities)):
+                a = entities[i]
+                b = entities[j]
+                a_movable = a.body_type in movable_types
+                b_movable = b.body_type in movable_types
+                if not (a_movable or b_movable):
+                    continue
+                pair = frozenset((a.name, b.name))
+                if pair not in interaction_pairs:
+                    logger.debug(
+                        "CompletenessChecker: no interaction between %r and %r",
+                        a.name, b.name,
+                    )
+                    questions.append(
+                        ClarificationQuestion(
+                            question=(
+                                f"What happens when {a.name} and {b.name} interact? "
+                                f"No interaction is specified for this pair."
+                            ),
+                            category="interaction",
+                            severity="medium",
+                            context=(
+                                f"Entities '{a.name}' (body_type='{a.body_type}') and "
+                                f"'{b.name}' (body_type='{b.body_type}') have no "
+                                f"InteractionSpec defined."
+                            ),
+                        ),
+                    )
+        return questions
+
+    def _check_speed_limits(
+        self, spec: GameDesignSpec,
+    ) -> list[ClarificationQuestion]:
+        """Check that every dynamic entity has a speed limit defined."""
+        questions: list[ClarificationQuestion] = []
+        for entity in spec.entities:
+            if entity.body_type == "dynamic" and entity.speed_max is None:
+                logger.debug(
+                    "CompletenessChecker: dynamic entity %r has no speed limit",
+                    entity.name,
+                )
+                questions.append(
+                    ClarificationQuestion(
+                        question=(
+                            f"What is the maximum speed for the {entity.name} entity? "
+                            f"A speed limit is needed to prevent degenerate behavior."
+                        ),
+                        category="invariant",
+                        severity="medium",
+                        context=(
+                            f"Entity '{entity.name}' has body_type='dynamic' "
+                            f"but no speed_max is set."
+                        ),
+                    ),
+                )
+        return questions
+
+    def _check_degenerate_states(
+        self, spec: GameDesignSpec,
+    ) -> list[ClarificationQuestion]:
+        """Check that at least one degenerate state is identified."""
+        if len(spec.degenerate_states) == 0:
+            logger.debug("CompletenessChecker: no degenerate states defined")
+            return [
+                ClarificationQuestion(
+                    question=(
+                        "What degenerate states should be avoided? "
+                        "No degenerate states are defined in the spec."
+                    ),
+                    category="degenerate",
+                    severity="medium",
+                    context="The spec has no DegenerateStateSpec entries.",
+                ),
+            ]
+        return []
+
+
+# ---------------------------------------------------------------------------
 # Private helpers
 # ---------------------------------------------------------------------------
 
