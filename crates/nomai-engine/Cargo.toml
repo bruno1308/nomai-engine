@@ -27,5 +27,9 @@ pollster = { workspace = true, optional = true }
 default = []
 renderer = ["dep:wgpu", "dep:winit", "dep:bytemuck", "dep:bytemuck_derive", "dep:pollster"]
 
+[[example]]
+name = "breakout_visual"
+required-features = ["renderer"]
+
 [dev-dependencies]
 proptest = "1"
