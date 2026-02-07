@@ -12,9 +12,11 @@ All output types are JSON-serializable for regression test storage.
 
 from __future__ import annotations
 
+import json
 import logging
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from nomai.intents import (
     Expected,
@@ -27,13 +29,33 @@ from nomai.intents import (
 )
 from nomai.manifest import (
     CausalChain,
-    CausalStep,
     ComponentChange,
-    GameEvent,
     TickManifest,
 )
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# SuggestedFix
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class SuggestedFix:
+    """A heuristic fix suggestion for the AI to act on."""
+    intent_name: str
+    fix_type: str  # "entity_not_found", "trigger_never_fired", "wrong_value", "timeout", "unknown"
+    description: str
+    priority: str = "medium"  # "high", "medium", "low"
+
+    def to_dict(self) -> dict[str, object]:
+        """Serialize to a plain dict for JSON storage."""
+        return {
+            "intent_name": self.intent_name,
+            "fix_type": self.fix_type,
+            "description": self.description,
+            "priority": self.priority,
+        }
 
 
 # ---------------------------------------------------------------------------
@@ -73,6 +95,32 @@ class IntentResult:
             "suggestion": self.suggestion,
         }
         return result
+
+    @classmethod
+    def from_dict(cls, data: dict[str, object]) -> IntentResult:
+        """Deserialize from a plain dict (inverse of to_dict)."""
+        evidence: list[ComponentChange] = []
+        raw_evidence = data.get("evidence", [])
+        if isinstance(raw_evidence, list):
+            evidence = [ComponentChange.from_dict(e) for e in raw_evidence]  # type: ignore[arg-type]
+
+        raw_chain = data.get("causal_chain")
+        causal_chain: CausalChain | None = None
+        if isinstance(raw_chain, dict):
+            causal_chain = CausalChain.from_dict(raw_chain)
+
+        raw_tick = data.get("trigger_tick")
+        trigger_tick: int | None = int(raw_tick) if raw_tick is not None else None  # type: ignore[arg-type]
+
+        return cls(
+            intent_name=str(data.get("intent_name", "")),
+            passed=bool(data.get("passed", False)),
+            failure_reason=str(data.get("failure_reason", "")),
+            trigger_tick=trigger_tick,
+            evidence=evidence,
+            causal_chain=causal_chain,
+            suggestion=str(data.get("suggestion", "")),
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -186,6 +234,193 @@ class VerificationReport:
             "ticks_examined": self.ticks_examined,
             "all_passed": self.all_passed,
         }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, object]) -> VerificationReport:
+        """Deserialize from a plain dict (inverse of to_dict)."""
+        raw_results = data.get("results", [])
+        results: list[IntentResult] = []
+        if isinstance(raw_results, list):
+            results = [IntentResult.from_dict(r) for r in raw_results]  # type: ignore[arg-type]
+        return cls(
+            suite_name=str(data.get("suite_name", "")),
+            total_intents=int(data.get("total_intents", 0)),  # type: ignore[arg-type]
+            passed=int(data.get("passed", 0)),  # type: ignore[arg-type]
+            failed=int(data.get("failed", 0)),  # type: ignore[arg-type]
+            results=results,
+            wall_time_ms=float(data.get("wall_time_ms", 0.0)),  # type: ignore[arg-type]
+            ticks_examined=int(data.get("ticks_examined", 0)),  # type: ignore[arg-type]
+        )
+
+    def to_json(self, indent: int | None = 2) -> str:
+        """Serialize to a JSON string."""
+        return json.dumps(self.to_dict(), indent=indent)
+
+    @classmethod
+    def from_json(cls, json_str: str) -> VerificationReport:
+        """Deserialize from a JSON string."""
+        data: dict[str, object] = json.loads(json_str)
+        return cls.from_dict(data)
+
+    def suggested_fixes(self) -> list[SuggestedFix]:
+        """Generate heuristic fix suggestions for all failures.
+
+        Categorizes failures and produces actionable suggestions.
+        """
+        fixes: list[SuggestedFix] = []
+        for r in self.failures():
+            fix_type = self._classify_failure(r)
+            fixes.append(SuggestedFix(
+                intent_name=r.intent_name,
+                fix_type=fix_type,
+                description=r.suggestion or r.failure_reason,
+                priority="high" if fix_type == "entity_not_found" else "medium",
+            ))
+        return fixes
+
+    @staticmethod
+    def _classify_failure(result: IntentResult) -> str:
+        """Classify a failure into a fix type based on heuristics."""
+        reason = result.failure_reason.lower()
+        if "no entity found" in reason or "not found" in reason:
+            return "entity_not_found"
+        if "never fired" in reason:
+            return "trigger_never_fired"
+        if "not met" in reason and ("timeout" in reason or "within" in reason):
+            return "timeout"
+        if "out of range" in reason or "expected value" in reason:
+            return "wrong_value"
+        return "unknown"
+
+
+# ---------------------------------------------------------------------------
+# ReplayResult
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class ReplayResult:
+    """Result of replaying a regression test."""
+    passed: bool
+    reason: str
+    expected_passed: int
+    expected_failed: int
+    actual_passed: int
+    actual_failed: int
+
+    def to_dict(self) -> dict[str, object]:
+        """Serialize to a plain dict for JSON storage."""
+        return {
+            "passed": self.passed,
+            "reason": self.reason,
+            "expected_passed": self.expected_passed,
+            "expected_failed": self.expected_failed,
+            "actual_passed": self.actual_passed,
+            "actual_failed": self.actual_failed,
+        }
+
+
+# ---------------------------------------------------------------------------
+# RegressionTest
+# ---------------------------------------------------------------------------
+
+@dataclass
+class RegressionTest:
+    """A regression test: suite + manifest snapshots + expected result counts."""
+    name: str
+    suite: VerificationSuite
+    manifests: list[TickManifest]
+    expected_pass_count: int
+    expected_fail_count: int
+
+    @classmethod
+    def create(
+        cls,
+        name: str,
+        suite: VerificationSuite,
+        manifests: list[TickManifest],
+        report: VerificationReport,
+    ) -> RegressionTest:
+        """Create a regression test from a verification run."""
+        return cls(
+            name=name,
+            suite=suite,
+            manifests=manifests,
+            expected_pass_count=report.passed,
+            expected_fail_count=report.failed,
+        )
+
+    def replay(
+        self,
+        engine: VerificationEngine,
+        manifests_override: list[TickManifest] | None = None,
+    ) -> ReplayResult:
+        """Replay the regression test and compare results to expectations."""
+        manifests = manifests_override if manifests_override is not None else self.manifests
+        report = engine.verify(self.suite, manifests)
+
+        if report.passed == self.expected_pass_count and report.failed == self.expected_fail_count:
+            return ReplayResult(
+                passed=True,
+                reason="Regression test passed: results match expected counts",
+                expected_passed=self.expected_pass_count,
+                expected_failed=self.expected_fail_count,
+                actual_passed=report.passed,
+                actual_failed=report.failed,
+            )
+        return ReplayResult(
+            passed=False,
+            reason=(
+                f"Regression drift detected: expected {self.expected_pass_count} pass / "
+                f"{self.expected_fail_count} fail, got {report.passed} pass / {report.failed} fail"
+            ),
+            expected_passed=self.expected_pass_count,
+            expected_failed=self.expected_fail_count,
+            actual_passed=report.passed,
+            actual_failed=report.failed,
+        )
+
+    def to_dict(self) -> dict[str, object]:
+        """Serialize to a plain dict for JSON storage."""
+        return {
+            "name": self.name,
+            "suite": self.suite.to_dict(),
+            "manifests": [m.to_dict() for m in self.manifests],
+            "expected_pass_count": self.expected_pass_count,
+            "expected_fail_count": self.expected_fail_count,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, object]) -> RegressionTest:
+        """Deserialize from a plain dict (inverse of to_dict)."""
+        raw_suite = data.get("suite", {})
+        suite = VerificationSuite.from_dict(raw_suite)  # type: ignore[arg-type]
+        raw_manifests = data.get("manifests", [])
+        manifests: list[TickManifest] = []
+        if isinstance(raw_manifests, list):
+            manifests = [TickManifest.from_dict(m) for m in raw_manifests]  # type: ignore[arg-type]
+        return cls(
+            name=str(data.get("name", "")),
+            suite=suite,
+            manifests=manifests,
+            expected_pass_count=int(data.get("expected_pass_count", 0)),  # type: ignore[arg-type]
+            expected_fail_count=int(data.get("expected_fail_count", 0)),  # type: ignore[arg-type]
+        )
+
+    def save(self, path: str | Path) -> None:
+        """Save this regression test to a JSON file."""
+        p = Path(path)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps(self.to_dict(), indent=2), encoding="utf-8")
+
+    @classmethod
+    def load(cls, path: str | Path) -> RegressionTest:
+        """Load a regression test from a JSON file."""
+        p = Path(path)
+        if not p.exists():
+            msg = f"Regression test file not found: {p}"
+            raise FileNotFoundError(msg)
+        data: dict[str, object] = json.loads(p.read_text(encoding="utf-8"))
+        return cls.from_dict(data)
 
 
 # ---------------------------------------------------------------------------
@@ -363,26 +598,41 @@ class VerificationEngine:
                 suggestion="Define an expected outcome for this behavior intent.",
             )
 
-        # Phase 1: Find trigger tick
-        trigger_tick_idx: int | None = None
-        for idx, manifest in enumerate(manifests):
-            if self._check_trigger(intent.trigger, manifest):
-                trigger_tick_idx = idx
-                break
-
-        if trigger_tick_idx is None:
-            return IntentResult(
-                intent_name=intent.name,
-                passed=False,
-                failure_reason=(
-                    f"Trigger '{intent.trigger.type.value}' never fired "
-                    f"across {len(manifests)} ticks"
-                ),
-                suggestion=(
-                    "Ensure the game state produces the trigger condition. "
-                    "Check that the relevant entities exist and interact correctly."
-                ),
+        # Handle AFTER triggers with two-phase resolution
+        if intent.trigger.type == TriggerType.AFTER:
+            resolved_idx, after_reason = self._resolve_after_trigger(
+                intent.trigger, manifests
             )
+            if resolved_idx is None:
+                return IntentResult(
+                    intent_name=intent.name,
+                    passed=False,
+                    failure_reason=f"After trigger failed: {after_reason}",
+                    suggestion="Ensure the child trigger condition occurs during simulation and the delay does not exceed the simulation length.",
+                )
+            trigger_tick_idx = resolved_idx
+        else:
+            # Phase 1: Find trigger tick
+            trigger_tick_idx_found: int | None = None
+            for idx, manifest in enumerate(manifests):
+                if self._check_trigger(intent.trigger, manifest):
+                    trigger_tick_idx_found = idx
+                    break
+
+            if trigger_tick_idx_found is None:
+                return IntentResult(
+                    intent_name=intent.name,
+                    passed=False,
+                    failure_reason=(
+                        f"Trigger '{intent.trigger.type.value}' never fired "
+                        f"across {len(manifests)} ticks"
+                    ),
+                    suggestion=(
+                        "Ensure the game state produces the trigger condition. "
+                        "Check that the relevant entities exist and interact correctly."
+                    ),
+                )
+            trigger_tick_idx = trigger_tick_idx_found
 
         trigger_tick = manifests[trigger_tick_idx].tick
 
@@ -415,6 +665,45 @@ class VerificationEngine:
                 "Check the gameplay logic that should respond to the trigger event."
             ),
         )
+
+    # -- After trigger resolution -------------------------------------------
+
+    def _resolve_after_trigger(
+        self,
+        trigger: Trigger,
+        manifests: list[TickManifest],
+    ) -> tuple[int | None, str]:
+        """Resolve an AFTER trigger: find child trigger tick + delay.
+
+        Returns ``(resolved_index, failure_reason)`` where *resolved_index*
+        is the manifest index the After trigger resolves to, or ``None`` on
+        failure.  *failure_reason* is empty on success and describes the
+        specific failure mode otherwise.
+        """
+        if trigger.type != TriggerType.AFTER or not trigger.children:
+            return None, "trigger is not AFTER or has no children"
+        child = trigger.children[0]
+        raw_delay = trigger.params.get("delay_ticks", 0)
+        delay = int(raw_delay) if raw_delay is not None else 0  # type: ignore[arg-type]
+
+        # Find when child fires
+        child_idx: int | None = None
+        for idx, manifest in enumerate(manifests):
+            if self._check_trigger(child, manifest):
+                child_idx = idx
+                break
+
+        if child_idx is None:
+            return None, "child trigger never fired"
+
+        resolved_idx = child_idx + delay
+        if resolved_idx >= len(manifests):
+            return None, (
+                f"child trigger fired at tick index {child_idx} but "
+                f"delay of {delay} ticks exceeds available manifests "
+                f"(need index {resolved_idx}, have {len(manifests)})"
+            )
+        return resolved_idx, ""
 
     # -- Metric verification ------------------------------------------------
 
@@ -644,15 +933,15 @@ class VerificationEngine:
                 if event.event_type == event_type:
                     if involving is None:
                         return True
-                    # If involving is specified, all listed entities must appear
-                    # (simplified: check event description or involved_entities)
                     if isinstance(involving, list):
-                        # For spike: just check event type match is sufficient
-                        return True
+                        detail = event.reason_detail.lower()
+                        desc = event.description.lower()
+                        search_text = f"{detail} {desc}"
+                        if all(name.lower() in search_text for name in involving):
+                            return True
             return False
 
         if trigger.type == TriggerType.COMPONENT_CONDITION:
-            entity = str(trigger.params.get("entity", ""))
             component = str(trigger.params.get("component", ""))
             field_name = str(trigger.params.get("field", ""))
             op = str(trigger.params.get("comparison", ""))
@@ -682,10 +971,13 @@ class VerificationEngine:
             return self._compare(float(actual), op, float(target))
 
         if trigger.type == TriggerType.COLLISION:
-            # Check for collision events in the manifest
+            entity_a = str(trigger.params.get("entity_a", ""))
+            entity_b = str(trigger.params.get("entity_b", ""))
             for event in manifest.events:
                 if event.event_type == "collision":
-                    return True
+                    detail = event.reason_detail.lower()
+                    if entity_a.lower() in detail and entity_b.lower() in detail:
+                        return True
             return False
 
         if trigger.type == TriggerType.AND:
@@ -700,14 +992,19 @@ class VerificationEngine:
                 for child in trigger.children
             )
 
-        # STATE_TRANSITION: check component changes for state transitions
         if trigger.type == TriggerType.STATE_TRANSITION:
-            entity = str(trigger.params.get("entity", ""))
+            entity_name = str(trigger.params.get("entity", ""))
             from_state = str(trigger.params.get("from_state", ""))
             to_state = str(trigger.params.get("to_state", ""))
             for change in manifest.component_changes:
                 if change.old_value == from_state and change.new_value == to_state:
-                    return True
+                    detail = change.reason_detail.lower()
+                    if entity_name.lower() in detail:
+                        return True
+            return False
+
+        if trigger.type == TriggerType.AFTER:
+            # AFTER triggers are evaluated at the behavior level via _resolve_after_trigger
             return False
 
         logger.warning("Unknown trigger type: %s", trigger.type)
@@ -721,7 +1018,6 @@ class VerificationEngine:
         Returns True if the expected outcome is satisfied.
         """
         if expected.type == ExpectedType.COMPONENT_CHANGED:
-            entity = str(expected.params.get("entity", ""))
             component = str(expected.params.get("component", ""))
             field_name = expected.params.get("field")
             expected_value = expected.params.get("expected_value")

@@ -6,10 +6,13 @@ against mock tick manifests, covering both pass and fail cases.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from nomai.intents import (
     IntentKind,
     IntentSpec,
     VerificationSuite,
+    after,
     aggregate_changed,
     aggregate_condition,
     all_,
@@ -23,6 +26,7 @@ from nomai.intents import (
     event_occurred,
     in_state,
     or_,
+    state_transition,
     tick_reached,
 )
 from nomai.manifest import (
@@ -35,6 +39,9 @@ from nomai.manifest import (
 )
 from nomai.verify import (
     IntentResult,
+    RegressionTest,
+    ReplayResult,
+    SuggestedFix,
     VerificationEngine,
     VerificationReport,
 )
@@ -108,6 +115,7 @@ def _make_event(
     description: str = "test event",
     involved: list[int] | None = None,
     tick: int = 0,
+    reason_detail: str = "test",
 ) -> GameEvent:
     """Build a GameEvent for testing."""
     return GameEvent(
@@ -116,7 +124,7 @@ def _make_event(
         involved_entities=involved or [],
         caused_by_system=1,
         reason_type="GameRule",
-        reason_detail="test",
+        reason_detail=reason_detail,
         tick=tick,
     )
 
@@ -468,7 +476,7 @@ class TestBehaviorVerification:
         assert report.all_passed
 
     def test_behavior_collision_trigger(self) -> None:
-        """COLLISION trigger fires when collision event appears."""
+        """COLLISION trigger fires when collision event appears with matching entities."""
         # Arrange
         engine = VerificationEngine()
         intent = IntentSpec(
@@ -488,7 +496,7 @@ class TestBehaviorVerification:
         m0 = _make_manifest(tick=0)
         m1 = _make_manifest(
             tick=1,
-            events=[_make_event("collision", "ball hit brick", [0, 1], tick=1)],
+            events=[_make_event("collision", "ball hit brick", [0, 1], tick=1, reason_detail="ball:brick")],
             despawns=[1],
         )
         manifests = [m0, m1]
@@ -603,6 +611,298 @@ class TestBehaviorVerification:
         # Assert
         assert not report.all_passed
         assert "no trigger" in report.results[0].failure_reason.lower()
+
+
+# ---------------------------------------------------------------------------
+# Hardened triggers
+# ---------------------------------------------------------------------------
+
+class TestHardenedTriggers:
+    """Tests for production-quality trigger matching."""
+
+    def test_collision_trigger_matches_entity_pair(self) -> None:
+        """Collision trigger only matches when both entity names appear in event."""
+        manifest = _make_manifest(
+            tick=1,
+            events=[
+                GameEvent(
+                    event_type="collision",
+                    description="ball hit paddle",
+                    involved_entities=[10, 20],
+                    caused_by_system=1,
+                    reason_type="CollisionResponse",
+                    reason_detail="ball:paddle",
+                    tick=1,
+                ),
+            ],
+        )
+        engine = VerificationEngine()
+        t = collision("ball", "paddle")
+        assert engine._check_trigger(t, manifest)
+
+    def test_collision_trigger_rejects_unrelated_collision(self) -> None:
+        """Collision trigger rejects events that don't involve named entities."""
+        manifest = _make_manifest(
+            tick=1,
+            events=[
+                GameEvent(
+                    event_type="collision",
+                    description="ball hit wall",
+                    involved_entities=[10, 30],
+                    caused_by_system=1,
+                    reason_type="CollisionResponse",
+                    reason_detail="ball:wall",
+                    tick=1,
+                ),
+            ],
+        )
+        engine = VerificationEngine()
+        t = collision("ball", "paddle")
+        assert not engine._check_trigger(t, manifest)
+
+    def test_event_occurred_filters_by_involving(self) -> None:
+        """EventOccurred trigger with involving list filters by entity names."""
+        manifest = _make_manifest(
+            tick=1,
+            events=[
+                GameEvent(
+                    event_type="score_change",
+                    description="score increased",
+                    involved_entities=[10],
+                    caused_by_system=1,
+                    reason_type="GameRule",
+                    reason_detail="player:10",
+                    tick=1,
+                ),
+            ],
+        )
+        engine = VerificationEngine()
+        # With matching involving
+        t1 = event_occurred("score_change", involving=["player"])
+        assert engine._check_trigger(t1, manifest)
+        # With non-matching involving
+        t2 = event_occurred("score_change", involving=["enemy"])
+        assert not engine._check_trigger(t2, manifest)
+
+    def test_state_transition_filters_by_entity(self) -> None:
+        """StateTransition trigger only fires for the named entity."""
+        manifest = _make_manifest(
+            tick=1,
+            changes=[
+                ComponentChange(
+                    entity_id=10,
+                    component_type_name="game_state",
+                    old_value="playing",
+                    new_value="won",
+                    changed_by_system=1,
+                    reason_type="GameRule",
+                    reason_detail="player:10",
+                    command_index=0,
+                    tick=1,
+                ),
+            ],
+        )
+        engine = VerificationEngine()
+        # Matching entity
+        t1 = state_transition("player", from_state="playing", to_state="won")
+        assert engine._check_trigger(t1, manifest)
+        # Non-matching entity
+        t2 = state_transition("enemy", from_state="playing", to_state="won")
+        assert not engine._check_trigger(t2, manifest)
+
+    def test_after_trigger_returns_false_in_check_trigger(self) -> None:
+        """AFTER trigger returns False in _check_trigger (handled at behavior level)."""
+        manifest = _make_manifest(tick=5)
+        engine = VerificationEngine()
+        t = after(tick_reached(0), delay_ticks=2)
+        assert not engine._check_trigger(t, manifest)
+
+
+# ---------------------------------------------------------------------------
+# After trigger evaluation
+# ---------------------------------------------------------------------------
+
+class TestAfterTriggerEvaluation:
+    """Tests for After trigger evaluation in behavior verification."""
+
+    def test_after_trigger_fires_after_delay(self) -> None:
+        """After trigger fires N ticks after child trigger fires."""
+        manifests = []
+        for t in range(10):
+            events = []
+            if t == 3:
+                events.append(GameEvent(
+                    event_type="collision",
+                    description="ball hit paddle",
+                    involved_entities=[10, 20],
+                    caused_by_system=1,
+                    reason_type="CollisionResponse",
+                    reason_detail="ball:paddle",
+                    tick=t,
+                ))
+            manifests.append(_make_manifest(tick=t, events=events))
+
+        suite = VerificationSuite(
+            name="test",
+            description="test",
+            intents=[
+                IntentSpec(
+                    name="delayed-response",
+                    kind=IntentKind.BEHAVIOR,
+                    description="Something happens 2 ticks after collision",
+                    trigger=after(collision("ball", "paddle"), delay_ticks=2),
+                    expected=event_emitted("score_change"),
+                    timeout_ticks=10,
+                ),
+            ],
+        )
+
+        # Add the expected event at tick 5 (collision at 3 + delay 2 = fires at 5)
+        manifests[5] = _make_manifest(
+            tick=5,
+            events=[GameEvent(
+                event_type="score_change",
+                description="score up",
+                involved_entities=[],
+                caused_by_system=1,
+                reason_type="GameRule",
+                reason_detail="",
+                tick=5,
+            )],
+        )
+
+        engine = VerificationEngine()
+        report = engine.verify(suite, manifests)
+        assert report.all_passed
+        assert report.results[0].trigger_tick == 5
+
+    def test_after_trigger_fails_if_child_never_fires(self) -> None:
+        """After trigger fails if the child trigger never fires."""
+        manifests = [_make_manifest(tick=t) for t in range(10)]
+        suite = VerificationSuite(
+            name="test",
+            description="test",
+            intents=[
+                IntentSpec(
+                    name="delayed-no-trigger",
+                    kind=IntentKind.BEHAVIOR,
+                    description="After trigger with no child fire",
+                    trigger=after(collision("ball", "paddle"), delay_ticks=2),
+                    expected=event_emitted("score_change"),
+                ),
+            ],
+        )
+        engine = VerificationEngine()
+        report = engine.verify(suite, manifests)
+        assert not report.all_passed
+        reason = report.results[0].failure_reason.lower()
+        assert "never fired" in reason
+        assert "child trigger" in reason
+
+    def test_after_trigger_fails_if_delay_exceeds_manifests(self) -> None:
+        """After trigger fails if delay pushes resolution past available manifests."""
+        manifests = [_make_manifest(tick=t) for t in range(3)]
+        # Collision at tick 2, delay 5 -> resolved at idx 7, but only 3 manifests
+        manifests[2] = _make_manifest(
+            tick=2,
+            events=[GameEvent(
+                event_type="collision",
+                description="hit",
+                involved_entities=[],
+                caused_by_system=1,
+                reason_type="CollisionResponse",
+                reason_detail="ball:paddle",
+                tick=2,
+            )],
+        )
+        suite = VerificationSuite(
+            name="test",
+            description="test",
+            intents=[
+                IntentSpec(
+                    name="delay-overflow",
+                    kind=IntentKind.BEHAVIOR,
+                    description="Delay exceeds available ticks",
+                    trigger=after(collision("ball", "paddle"), delay_ticks=5),
+                    expected=event_emitted("x"),
+                ),
+            ],
+        )
+        engine = VerificationEngine()
+        report = engine.verify(suite, manifests)
+        assert not report.all_passed
+        reason = report.results[0].failure_reason.lower()
+        # Should mention delay/exceeds, not "never fired"
+        assert "exceeds" in reason or "delay" in reason
+        assert "never fired" not in reason
+
+    def test_after_trigger_with_zero_delay(self) -> None:
+        """After trigger with delay_ticks=0 fires on same tick as child."""
+        manifests = [
+            _make_manifest(tick=0),
+            _make_manifest(
+                tick=1,
+                events=[
+                    GameEvent(
+                        event_type="collision",
+                        description="hit",
+                        involved_entities=[],
+                        caused_by_system=1,
+                        reason_type="CollisionResponse",
+                        reason_detail="ball:paddle",
+                        tick=1,
+                    ),
+                    GameEvent(
+                        event_type="response",
+                        description="immediate",
+                        involved_entities=[],
+                        caused_by_system=1,
+                        reason_type="GameRule",
+                        reason_detail="",
+                        tick=1,
+                    ),
+                ],
+            ),
+        ]
+        suite = VerificationSuite(
+            name="test",
+            description="test",
+            intents=[
+                IntentSpec(
+                    name="immediate-after",
+                    kind=IntentKind.BEHAVIOR,
+                    description="Zero delay after trigger",
+                    trigger=after(collision("ball", "paddle"), delay_ticks=0),
+                    expected=event_emitted("response"),
+                    timeout_ticks=5,
+                ),
+            ],
+        )
+        engine = VerificationEngine()
+        report = engine.verify(suite, manifests)
+        assert report.all_passed
+
+
+# ---------------------------------------------------------------------------
+# Hardened expected outcomes
+# ---------------------------------------------------------------------------
+
+class TestHardenedExpected:
+    """Tests for hardened expected outcome matching."""
+
+    def test_entity_despawned_checks_specific_entity(self) -> None:
+        """EntityDespawned checks for the specific entity in despawns list."""
+        manifest = _make_manifest(tick=1, despawns=[99])
+        engine = VerificationEngine()
+        e = entity_despawned("brick")
+        assert engine._check_expected(e, manifest)
+
+    def test_entity_despawned_fails_when_no_despawns(self) -> None:
+        """EntityDespawned fails when no entities are despawned."""
+        manifest = _make_manifest(tick=1)
+        engine = VerificationEngine()
+        e = entity_despawned("brick")
+        assert not engine._check_expected(e, manifest)
 
 
 # ---------------------------------------------------------------------------
@@ -1128,6 +1428,294 @@ class TestIntentResult:
         assert d["trigger_tick"] == 3
         assert len(d["evidence"]) == 1  # type: ignore[arg-type]
         assert d["suggestion"] == "Heal the entity"
+
+
+# ---------------------------------------------------------------------------
+# Suggested fixes
+# ---------------------------------------------------------------------------
+
+class TestSuggestedFixes:
+    """Tests for suggested_fixes() on VerificationReport."""
+
+    def test_suggested_fixes_empty_when_all_pass(self) -> None:
+        """No suggestions when all intents pass."""
+        report = VerificationReport(
+            suite_name="test",
+            total_intents=1,
+            passed=1,
+            failed=0,
+            results=[
+                IntentResult(intent_name="ok", passed=True),
+            ],
+        )
+        fixes = report.suggested_fixes()
+        assert fixes == []
+
+    def test_suggested_fixes_returns_fix_per_failure(self) -> None:
+        """Each failed intent produces a SuggestedFix."""
+        report = VerificationReport(
+            suite_name="test",
+            total_intents=2,
+            passed=0,
+            failed=2,
+            results=[
+                IntentResult(
+                    intent_name="entity-missing",
+                    passed=False,
+                    failure_reason="No entity found with role 'paddle'",
+                    suggestion="Add a spawn command for paddle",
+                ),
+                IntentResult(
+                    intent_name="trigger-never-fired",
+                    passed=False,
+                    failure_reason="Trigger 'collision' never fired",
+                    suggestion="Check interaction logic",
+                ),
+            ],
+        )
+        fixes = report.suggested_fixes()
+        assert len(fixes) == 2
+        assert fixes[0].intent_name == "entity-missing"
+        assert fixes[0].fix_type == "entity_not_found"
+        assert "spawn" in fixes[0].description.lower()
+        assert fixes[1].intent_name == "trigger-never-fired"
+        assert fixes[1].fix_type == "trigger_never_fired"
+
+    def test_suggested_fix_serialization(self) -> None:
+        """SuggestedFix can be serialized to dict."""
+        fix = SuggestedFix(
+            intent_name="test",
+            fix_type="entity_not_found",
+            description="Add spawn for paddle",
+            priority="high",
+        )
+        d = fix.to_dict()
+        assert d["intent_name"] == "test"
+        assert d["fix_type"] == "entity_not_found"
+
+
+# ---------------------------------------------------------------------------
+# Report serialization
+# ---------------------------------------------------------------------------
+
+class TestReportSerialization:
+    """Tests for IntentResult and VerificationReport round-trip serialization."""
+
+    def test_intent_result_round_trip(self) -> None:
+        """IntentResult survives to_dict/from_dict round trip."""
+        result = IntentResult(
+            intent_name="test",
+            passed=False,
+            failure_reason="something went wrong",
+            trigger_tick=42,
+            suggestion="fix it",
+        )
+        d = result.to_dict()
+        restored = IntentResult.from_dict(d)
+        assert restored.intent_name == result.intent_name
+        assert restored.passed == result.passed
+        assert restored.failure_reason == result.failure_reason
+        assert restored.trigger_tick == result.trigger_tick
+        assert restored.suggestion == result.suggestion
+
+    def test_intent_result_with_evidence_round_trip(self) -> None:
+        """IntentResult with evidence survives round trip."""
+        evidence = ComponentChange(
+            entity_id=10,
+            component_type_name="velocity",
+            old_value={"x": 1.0},
+            new_value={"x": -1.0},
+            changed_by_system=1,
+            reason_type="CollisionResponse",
+            reason_detail="ball:paddle",
+            command_index=0,
+            tick=5,
+        )
+        result = IntentResult(
+            intent_name="with-evidence",
+            passed=True,
+            trigger_tick=5,
+            evidence=[evidence],
+        )
+        d = result.to_dict()
+        restored = IntentResult.from_dict(d)
+        assert len(restored.evidence) == 1
+        assert restored.evidence[0].entity_id == 10
+
+    def test_verification_report_round_trip(self) -> None:
+        """VerificationReport survives to_dict/from_dict round trip."""
+        report = VerificationReport(
+            suite_name="test-suite",
+            total_intents=2,
+            passed=1,
+            failed=1,
+            results=[
+                IntentResult(intent_name="ok", passed=True),
+                IntentResult(intent_name="bad", passed=False, failure_reason="broke"),
+            ],
+            wall_time_ms=12.5,
+            ticks_examined=100,
+        )
+        d = report.to_dict()
+        restored = VerificationReport.from_dict(d)
+        assert restored.suite_name == "test-suite"
+        assert restored.total_intents == 2
+        assert restored.passed == 1
+        assert restored.failed == 1
+        assert len(restored.results) == 2
+        assert restored.wall_time_ms == 12.5
+        assert restored.ticks_examined == 100
+
+    def test_verification_report_json_round_trip(self) -> None:
+        """VerificationReport survives to_json/from_json round trip."""
+        report = VerificationReport(
+            suite_name="json-test",
+            total_intents=1,
+            passed=1,
+            failed=0,
+            results=[IntentResult(intent_name="ok", passed=True)],
+        )
+        json_str = report.to_json()
+        restored = VerificationReport.from_json(json_str)
+        assert restored.suite_name == "json-test"
+        assert restored.all_passed
+
+
+# ---------------------------------------------------------------------------
+# Regression test
+# ---------------------------------------------------------------------------
+
+class TestRegressionTest:
+    """Tests for regression test creation and replay."""
+
+    def test_create_regression_from_passing_report(self) -> None:
+        """Regression test captures suite, manifests, and expected results."""
+        manifests = [_make_manifest(tick=0), _make_manifest(tick=1)]
+        suite = VerificationSuite(
+            name="test",
+            description="test",
+            intents=[
+                IntentSpec(
+                    name="tick-check",
+                    kind=IntentKind.BEHAVIOR,
+                    description="Check tick",
+                    trigger=tick_reached(0),
+                    expected=event_emitted("anything"),
+                ),
+            ],
+        )
+        engine = VerificationEngine()
+        report = engine.verify(suite, manifests)
+
+        regression = RegressionTest.create(
+            name="test-regression",
+            suite=suite,
+            manifests=manifests,
+            report=report,
+        )
+        assert regression.name == "test-regression"
+        assert len(regression.manifests) == 2
+        assert regression.expected_pass_count == report.passed
+        assert regression.expected_fail_count == report.failed
+
+    def test_regression_save_and_load(self, tmp_path: Path) -> None:
+        """Regression test survives save/load cycle."""
+        manifests = [_make_manifest(tick=0)]
+        suite = VerificationSuite(name="rt", description="rt")
+        report = VerificationReport(
+            suite_name="rt",
+            total_intents=0,
+            passed=0,
+            failed=0,
+            results=[],
+        )
+        regression = RegressionTest.create("rt", suite, manifests, report)
+        filepath = tmp_path / "regression.json"
+        regression.save(filepath)
+        loaded = RegressionTest.load(filepath)
+        assert loaded.name == "rt"
+        assert len(loaded.manifests) == 1
+
+    def test_regression_replay_passes_with_same_manifests(self) -> None:
+        """Replaying a regression test with same manifests produces same result."""
+        manifests = [
+            _make_manifest(tick=0),
+            _make_manifest(
+                tick=1,
+                events=[GameEvent(
+                    event_type="test_event",
+                    description="test",
+                    involved_entities=[],
+                    caused_by_system=0,
+                    reason_type="GameRule",
+                    reason_detail="",
+                    tick=1,
+                )],
+            ),
+        ]
+        suite = VerificationSuite(
+            name="replay-test",
+            description="test",
+            intents=[
+                IntentSpec(
+                    name="event-check",
+                    kind=IntentKind.BEHAVIOR,
+                    description="Event fires at tick 1",
+                    trigger=tick_reached(1),
+                    expected=event_emitted("test_event"),
+                    timeout_ticks=10,
+                ),
+            ],
+        )
+        engine = VerificationEngine()
+        report = engine.verify(suite, manifests)
+        assert report.all_passed
+
+        regression = RegressionTest.create("replay", suite, manifests, report)
+        replay_result = regression.replay(engine)
+        assert replay_result.passed
+
+    def test_regression_replay_detects_drift(self) -> None:
+        """Replaying with different manifests detects regression."""
+        manifests_good = [
+            _make_manifest(
+                tick=0,
+                events=[GameEvent(
+                    event_type="test",
+                    description="t",
+                    involved_entities=[],
+                    caused_by_system=0,
+                    reason_type="GameRule",
+                    reason_detail="",
+                    tick=0,
+                )],
+            ),
+        ]
+        suite = VerificationSuite(
+            name="drift-test",
+            description="test",
+            intents=[
+                IntentSpec(
+                    name="event-check",
+                    kind=IntentKind.BEHAVIOR,
+                    description="Event fires",
+                    trigger=tick_reached(0),
+                    expected=event_emitted("test"),
+                    timeout_ticks=10,
+                ),
+            ],
+        )
+        engine = VerificationEngine()
+        report = engine.verify(suite, manifests_good)
+        assert report.all_passed
+
+        regression = RegressionTest.create("drift", suite, manifests_good, report)
+
+        # Replay with different manifests (no event)
+        manifests_bad = [_make_manifest(tick=0)]
+        replay_result = regression.replay(engine, manifests_override=manifests_bad)
+        assert not replay_result.passed
+        assert "drift" in replay_result.reason.lower() or "regression" in replay_result.reason.lower()
 
 
 # ---------------------------------------------------------------------------
