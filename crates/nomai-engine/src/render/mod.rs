@@ -19,6 +19,9 @@ pub mod text;
 pub mod annotation;
 
 #[cfg(feature = "renderer")]
+pub mod app;
+
+#[cfg(feature = "renderer")]
 pub use renderer::{Camera2D, DebugRenderer, DrawCommand};
 
 #[cfg(feature = "renderer")]
@@ -26,3 +29,6 @@ pub use text::TextRenderer;
 
 #[cfg(feature = "renderer")]
 pub use annotation::{parse_asset_path, AssetAnnotation};
+
+#[cfg(feature = "renderer")]
+pub use app::run_windowed;

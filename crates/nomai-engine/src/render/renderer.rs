@@ -610,6 +610,23 @@ impl DebugRenderer {
         Ok(())
     }
 
+    /// Extract draw commands from the world and render them in one call.
+    ///
+    /// This is a convenience method that combines
+    /// [`extract_draw_commands`](Self::extract_draw_commands) and
+    /// [`render`](Self::render) into a single step. Useful for the
+    /// windowed app runner where you just want to render the current
+    /// world state each frame.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`wgpu::SurfaceError`] if the surface cannot provide an
+    /// output texture (e.g., window minimized, surface lost).
+    pub fn render_world(&mut self, world: &World) -> Result<(), wgpu::SurfaceError> {
+        let commands = Self::extract_draw_commands(world);
+        self.render(&commands)
+    }
+
     /// Resize the surface when the window size changes.
     ///
     /// Must be called in response to window resize events. The new size
