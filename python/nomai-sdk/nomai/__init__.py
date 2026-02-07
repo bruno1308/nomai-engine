@@ -29,6 +29,12 @@ from nomai.gdd import (
     InvariantSpec,
     PlayAreaSpec,
 )
+from nomai.gdd_pipeline import (
+    PipelineResult,
+    load_spec,
+    run_pipeline,
+    save_spec,
+)
 from nomai.replay import (
     EngineSnapshot,
     ReplayDivergence,
@@ -54,11 +60,15 @@ __all__ = [
     "InteractionSpec",
     "InvariantSpec",
     "NomaiEngine",
+    "PipelineResult",
     "PlayAreaSpec",
     "ReplayDivergence",
     "ReplayLog",
     "ReplayResult",
     "TickManifest",
+    "load_spec",
+    "run_pipeline",
+    "save_spec",
 ]
 
 
