@@ -224,10 +224,7 @@ impl World {
                 if !seen.insert(free_idx) {
                     return Err(EcsError::ComponentDeserializationError {
                         component: "__allocator".to_owned(),
-                        details: format!(
-                            "free list contains duplicate index {}",
-                            free_idx
-                        ),
+                        details: format!("free list contains duplicate index {}", free_idx),
                     });
                 }
             }

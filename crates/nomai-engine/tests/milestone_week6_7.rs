@@ -280,10 +280,9 @@ fn milestone_replay_determinism() {
                 .insert("move_x".to_string(), serde_json::json!(i as f64 * 0.3));
         }
         if i % 13 == 0 {
-            input.inputs.insert(
-                "action".to_string(),
-                serde_json::json!(format!("jump_{i}")),
-            );
+            input
+                .inputs
+                .insert("action".to_string(), serde_json::json!(format!("jump_{i}")));
         }
         record_loop.set_input(input.clone());
 
@@ -403,23 +402,19 @@ fn milestone_headless_runs_without_gpu() {
     // Verify manifests were produced.
     // The manifest history window is 60 ticks, so ticks 40..99 should all be present.
     for tick in 40..100 {
-        let manifest = tick_loop
-            .manifest_at_tick(tick)
-            .unwrap_or_else(|| panic!("manifest at tick {tick} should exist (history window is 60)"));
+        let manifest = tick_loop.manifest_at_tick(tick).unwrap_or_else(|| {
+            panic!("manifest at tick {tick} should exist (history window is 60)")
+        });
 
         // Each manifest should record the systems that executed.
         assert!(
-            manifest
-                .systems_executed
-                .contains(&"movement".to_owned()),
+            manifest.systems_executed.contains(&"movement".to_owned()),
             "manifest at tick {} should list movement system, got {:?}",
             tick,
             manifest.systems_executed
         );
         assert!(
-            manifest
-                .systems_executed
-                .contains(&"counter".to_owned()),
+            manifest.systems_executed.contains(&"counter".to_owned()),
             "manifest at tick {} should list counter system, got {:?}",
             tick,
             manifest.systems_executed
@@ -502,12 +497,20 @@ fn milestone_snapshot_determinism_with_physics() {
     // reconstruct the rapier world from ECS components rather than
     // getting lucky with an already-matching state.
     snapped.run_ticks(30);
-    assert_eq!(snapped.tick_count(), 80, "should be at tick 80 after dirtying");
+    assert_eq!(
+        snapped.tick_count(),
+        80,
+        "should be at tick 80 after dirtying"
+    );
 
     snapped
         .restore_from_snapshot(&snapshot)
         .expect("physics snapshot restore should succeed");
-    assert_eq!(snapped.tick_count(), 50, "should be back at tick 50 after restore");
+    assert_eq!(
+        snapped.tick_count(),
+        50,
+        "should be back at tick 50 after restore"
+    );
 
     snapped.run_ticks(50);
     let hash_restored = snapped.state_hash();
