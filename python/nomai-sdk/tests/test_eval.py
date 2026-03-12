@@ -42,6 +42,10 @@ from nomai.eval.verification import (
     diagnosis_to_fix_success_at_k,
     intent_expressibility_coverage,
 )
+from nomai.eval.llm_client import MockLLMClient
+from nomai.eval.scene_qa import SceneQuestion
+from nomai.eval.action_prediction import PredictionCase
+from nomai.eval.reasoning import SpatialQuestion
 from nomai.manifest import (
     Aggregates,
     CausalChain,
@@ -49,6 +53,7 @@ from nomai.manifest import (
     ComponentChange,
     TickManifest,
 )
+from nomai.scene import SceneBounds, SceneEntity, SceneSnapshot
 
 
 # ---------------------------------------------------------------------------
@@ -473,3 +478,81 @@ class TestEvalRunner:
         assert report.cw_ztvcr == 1.0
         obs = report.dimensions["observability"]
         assert obs.passed is True
+
+
+# ===========================================================================
+# EvalRunner Tier 2 & 3 tests
+# ===========================================================================
+
+class TestEvalRunnerTier2Tier3:
+    def test_run_scene_qa(self):
+        snap = SceneSnapshot(
+            schema_version=1, tick=1, sim_time=0.0,
+            entities=[
+                SceneEntity(entity_id=1, entity_type="character", role="paddle",
+                    tier="Semantic", position=(400.0, 560.0), size=None,
+                    velocity=None, visible=True, z_index=0.0),
+            ],
+            bounds=SceneBounds(min_x=0.0, min_y=0.0, max_x=800.0, max_y=600.0),
+            entity_count=1,
+        )
+        questions = [SceneQuestion("How many entities?", "1", "count")]
+        client = MockLLMClient(responses=["1"])
+        results = EvalRunner.run_scene_qa(snap, questions, client)
+        assert len(results) == 1
+        assert results[0].name == "scene_qa_accuracy"
+
+    def test_run_geval(self):
+        snap = SceneSnapshot(
+            schema_version=1, tick=1, sim_time=0.0,
+            entities=[],
+            bounds=SceneBounds(min_x=0.0, min_y=0.0, max_x=800.0, max_y=600.0),
+            entity_count=0,
+        )
+        client = MockLLMClient(responses=["4"])
+        results = EvalRunner.run_geval(snap, client)
+        assert len(results) == 4
+
+    def test_run_all_includes_tier2_when_provided(self):
+        runner = EvalRunner()
+        snap = SceneSnapshot(
+            schema_version=1, tick=1, sim_time=0.0,
+            entities=[
+                SceneEntity(entity_id=1, entity_type="character", role="paddle",
+                    tier="Semantic", position=(400.0, 560.0), size=None,
+                    velocity=None, visible=True, z_index=0.0),
+            ],
+            bounds=SceneBounds(min_x=0.0, min_y=0.0, max_x=800.0, max_y=600.0),
+            entity_count=1,
+        )
+        questions = [SceneQuestion("How many entities?", "1", "count")]
+        client = MockLLMClient(responses=["1", "no"])
+        report = runner.run_all(
+            scene_snapshot=snap,
+            scene_qa_questions=questions,
+            llm_client=client,
+        )
+        # Note: G-Eval NOT run because run_geval=False (opt-in)
+        metric_names = {m.name for m in report.metrics}
+        assert "scene_qa_accuracy" in metric_names
+
+    def test_run_all_geval_opt_in(self):
+        """G-Eval only runs when run_geval=True."""
+        runner = EvalRunner()
+        snap = SceneSnapshot(
+            schema_version=1, tick=1, sim_time=0.0,
+            entities=[],
+            bounds=SceneBounds(min_x=0.0, min_y=0.0, max_x=800.0, max_y=600.0),
+            entity_count=0,
+        )
+        client = MockLLMClient(responses=["4", "4", "4", "4"])
+        # Without run_geval=True, no G-Eval metrics
+        report1 = runner.run_all(scene_snapshot=snap, llm_client=client)
+        geval_names = {m.name for m in report1.metrics if m.name.startswith("geval_")}
+        assert len(geval_names) == 0
+
+        # With run_geval=True, G-Eval metrics present
+        client2 = MockLLMClient(responses=["4", "4", "4", "4"])
+        report2 = runner.run_all(scene_snapshot=snap, llm_client=client2, run_geval=True)
+        geval_names2 = {m.name for m in report2.metrics if m.name.startswith("geval_")}
+        assert len(geval_names2) == 4

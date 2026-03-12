@@ -13,16 +13,23 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timezone
 
+from nomai.eval import action_prediction as pred_mod
 from nomai.eval import autonomy as autonomy_mod
 from nomai.eval import controllability as ctrl_mod
 from nomai.eval import observability as obs_mod
+from nomai.eval import reasoning as reason_mod
 from nomai.eval import reproducibility as repro_mod
+from nomai.eval import scene_qa as qa_mod
 from nomai.eval import verification as verif_mod
+from nomai.eval.action_prediction import PredictionCase
 from nomai.eval.autonomy import TaskResult
 from nomai.eval.controllability import CommandResult, LatencyObservation
+from nomai.eval.llm_client import LLMClient
 from nomai.eval.metrics import DimensionScore, EvalDimension, MetricResult
+from nomai.eval.reasoning import SpatialQuestion
 from nomai.eval.report import EvalReport
 from nomai.eval.reproducibility import HashCheckpoint
+from nomai.eval.scene_qa import SceneQuestion
 from nomai.eval.verification import BugCorpusResult
 from nomai.manifest import CausalChain, ComponentChange, EntityEntry, TickManifest
 from nomai.scene import SceneSnapshot
@@ -115,6 +122,42 @@ class EvalRunner:
             autonomy_mod.human_intervention_count(task_results),
         ]
 
+    # -- Tier 2 & 3 runners --------------------------------------------------
+
+    @staticmethod
+    def run_scene_qa(
+        snapshot: SceneSnapshot,
+        questions: list[SceneQuestion],
+        llm_client: LLMClient,
+    ) -> list[MetricResult]:
+        """Run Tier 2 Scene QA metrics."""
+        return [qa_mod.scene_qa_accuracy(snapshot, questions, llm_client)]
+
+    @staticmethod
+    def run_action_prediction(
+        cases: list[PredictionCase],
+        llm_client: LLMClient,
+    ) -> list[MetricResult]:
+        """Run Tier 2 action prediction metrics."""
+        return [pred_mod.action_prediction_accuracy(cases, llm_client)]
+
+    @staticmethod
+    def run_geval(
+        snapshot: SceneSnapshot,
+        llm_client: LLMClient,
+    ) -> list[MetricResult]:
+        """Run Tier 3 G-Eval metrics."""
+        return reason_mod.geval_all(snapshot, llm_client)
+
+    @staticmethod
+    def run_multihop(
+        snapshot: SceneSnapshot,
+        questions: list[SpatialQuestion],
+        llm_client: LLMClient,
+    ) -> list[MetricResult]:
+        """Run Tier 3 multi-hop spatial reasoning metrics."""
+        return [reason_mod.multihop_spatial_accuracy(snapshot, questions, llm_client)]
+
     # -- CW-ZTVCR computation ------------------------------------------------
 
     @staticmethod
@@ -154,6 +197,14 @@ class EvalRunner:
         expressible_rules: int = 0,
         # Autonomy inputs
         task_results: list[TaskResult] | None = None,
+        # Tier 2 inputs
+        scene_qa_questions: list[SceneQuestion] | None = None,
+        prediction_cases: list[PredictionCase] | None = None,
+        # Tier 3 inputs (opt-in — expensive LLM calls)
+        spatial_questions: list[SpatialQuestion] | None = None,
+        run_geval: bool = False,
+        # LLM client (required for Tier 2/3)
+        llm_client: LLMClient | None = None,
         # Metadata
         engine_version: str = "unknown",
         complexity_tier: str = "breakout",
@@ -172,6 +223,27 @@ class EvalRunner:
             scene_snapshot=scene_snapshot,
             snapshot_ground_truth_entities=snapshot_ground_truth_entities,
         )
+
+        # Tier 2: Scene QA (requires LLM client + snapshot)
+        if llm_client is not None and scene_snapshot is not None:
+            if scene_qa_questions is not None:
+                obs_metrics.extend(self.run_scene_qa(
+                    scene_snapshot, scene_qa_questions, llm_client,
+                ))
+            if prediction_cases is not None:
+                obs_metrics.extend(self.run_action_prediction(
+                    prediction_cases, llm_client,
+                ))
+
+        # Tier 3: G-Eval + spatial reasoning (opt-in, expensive)
+        if run_geval and llm_client is not None and scene_snapshot is not None:
+            obs_metrics.extend(self.run_geval(scene_snapshot, llm_client))
+            if spatial_questions is not None:
+                obs_metrics.extend(self.run_multihop(
+                    scene_snapshot, spatial_questions, llm_client,
+                ))
+
+        # Compute dimension score AFTER all tiers
         all_metrics.extend(obs_metrics)
         dimension_scores["observability"] = DimensionScore.from_metrics(
             EvalDimension.OBSERVABILITY, obs_metrics,
