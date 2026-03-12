@@ -24,7 +24,8 @@ from nomai.eval.metrics import DimensionScore, EvalDimension, MetricResult
 from nomai.eval.report import EvalReport
 from nomai.eval.reproducibility import HashCheckpoint
 from nomai.eval.verification import BugCorpusResult
-from nomai.manifest import CausalChain, ComponentChange, TickManifest
+from nomai.manifest import CausalChain, ComponentChange, EntityEntry, TickManifest
+from nomai.scene import SceneSnapshot
 
 logger = logging.getLogger(__name__)
 
@@ -46,13 +47,23 @@ class EvalRunner:
         ground_truth_states: dict[int, dict[str, object]],
         causal_chains: list[CausalChain],
         ground_truth_causes: dict[str, str],
+        scene_snapshot: SceneSnapshot | None = None,
+        snapshot_ground_truth_entities: list[EntityEntry] | None = None,
     ) -> list[MetricResult]:
         """Run observability dimension metrics."""
-        return [
+        results = [
             obs_mod.manifest_change_recall(manifests, ground_truth_changes),
             obs_mod.state_reconstruction_fidelity(manifests, ground_truth_states),
             obs_mod.root_cause_recoverability_at_k(causal_chains, ground_truth_causes),
         ]
+        if scene_snapshot is not None and snapshot_ground_truth_entities is not None:
+            results.extend([
+                obs_mod.snapshot_entity_recall(scene_snapshot, snapshot_ground_truth_entities),
+                obs_mod.snapshot_entity_precision(scene_snapshot, snapshot_ground_truth_entities),
+                obs_mod.snapshot_attribute_accuracy(scene_snapshot, snapshot_ground_truth_entities),
+                obs_mod.snapshot_completeness(scene_snapshot, snapshot_ground_truth_entities),
+            ])
+        return results
 
     @staticmethod
     def run_controllability(
@@ -127,6 +138,8 @@ class EvalRunner:
         ground_truth_states: dict[int, dict[str, object]] | None = None,
         causal_chains: list[CausalChain] | None = None,
         ground_truth_causes: dict[str, str] | None = None,
+        scene_snapshot: SceneSnapshot | None = None,
+        snapshot_ground_truth_entities: list[EntityEntry] | None = None,
         # Controllability inputs
         command_results: list[CommandResult] | None = None,
         latency_observations: list[LatencyObservation] | None = None,
@@ -156,6 +169,8 @@ class EvalRunner:
             ground_truth_states or {},
             causal_chains or [],
             ground_truth_causes or {},
+            scene_snapshot=scene_snapshot,
+            snapshot_ground_truth_entities=snapshot_ground_truth_entities,
         )
         all_metrics.extend(obs_metrics)
         dimension_scores["observability"] = DimensionScore.from_metrics(

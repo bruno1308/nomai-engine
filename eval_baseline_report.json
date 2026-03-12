@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-03-12T02:08:11.058355+00:00",
+  "timestamp": "2026-03-12T04:19:36.768580+00:00",
   "engine_version": "b1ce98b4d1a7",
   "dimensions": {
     "observability": {
@@ -28,6 +28,38 @@
           "target": 0.9,
           "passed": true,
           "detail": "No causal chains to evaluate (vacuously correct)."
+        },
+        {
+          "name": "snapshot_entity_recall",
+          "dimension": "observability",
+          "value": 1.0,
+          "target": 1.0,
+          "passed": true,
+          "detail": "24/24 alive entities found in snapshot."
+        },
+        {
+          "name": "snapshot_entity_precision",
+          "dimension": "observability",
+          "value": 1.0,
+          "target": 1.0,
+          "passed": true,
+          "detail": "24/24 snapshot entities are alive in ground truth."
+        },
+        {
+          "name": "snapshot_attribute_accuracy",
+          "dimension": "observability",
+          "value": 1.0,
+          "target": 0.95,
+          "passed": true,
+          "detail": "24/24 entities have correct attributes."
+        },
+        {
+          "name": "snapshot_completeness",
+          "dimension": "observability",
+          "value": 1.0,
+          "target": 0.95,
+          "passed": true,
+          "detail": "Entity F1=1.000 (precision=1.000, recall=1.000). Snapshot has 24 entities, ground truth has 24 alive."
         }
       ],
       "score": 1.0,
@@ -185,6 +217,38 @@
       "detail": "No causal chains to evaluate (vacuously correct)."
     },
     {
+      "name": "snapshot_entity_recall",
+      "dimension": "observability",
+      "value": 1.0,
+      "target": 1.0,
+      "passed": true,
+      "detail": "24/24 alive entities found in snapshot."
+    },
+    {
+      "name": "snapshot_entity_precision",
+      "dimension": "observability",
+      "value": 1.0,
+      "target": 1.0,
+      "passed": true,
+      "detail": "24/24 snapshot entities are alive in ground truth."
+    },
+    {
+      "name": "snapshot_attribute_accuracy",
+      "dimension": "observability",
+      "value": 1.0,
+      "target": 0.95,
+      "passed": true,
+      "detail": "24/24 entities have correct attributes."
+    },
+    {
+      "name": "snapshot_completeness",
+      "dimension": "observability",
+      "value": 1.0,
+      "target": 0.95,
+      "passed": true,
+      "detail": "Entity F1=1.000 (precision=1.000, recall=1.000). Snapshot has 24 entities, ground truth has 24 alive."
+    },
+    {
       "name": "command_semantic_reliability",
       "dimension": "controllability",
       "value": 1.0,
@@ -287,6 +351,6 @@
     "entity_count": 24,
     "collision_count": 1,
     "bricks_destroyed": 1,
-    "sim_time_ms": 8.1
+    "sim_time_ms": 7.8
   }
 }

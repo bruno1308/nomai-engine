@@ -1,6 +1,6 @@
-"""Observability dimension evaluation -- manifest fidelity.
+"""Observability dimension evaluation -- manifest & scene fidelity.
 
-Answers: "Can AI reconstruct full game state from manifest output?"
+Answers: "Can AI reconstruct full game state from engine output?"
 
 Metrics:
 - ``manifest_change_recall``: Are all meaningful state changes captured?
@@ -8,6 +8,12 @@ Metrics:
   from manifests alone?
 - ``root_cause_recoverability_at_k``: Do causal chains surface the true
   root cause within the first *k* steps?
+- ``snapshot_entity_recall``: Are all alive entities present in the scene
+  snapshot?
+- ``snapshot_entity_precision``: Are all snapshot entities actually alive?
+- ``snapshot_attribute_accuracy``: Are entity attributes (position, type,
+  role) correct in the scene snapshot?
+- ``snapshot_completeness``: Overall scene snapshot completeness score.
 """
 
 from __future__ import annotations
@@ -15,7 +21,8 @@ from __future__ import annotations
 import logging
 
 from nomai.eval.metrics import EvalDimension, MetricResult
-from nomai.manifest import CausalChain, ComponentChange, TickManifest
+from nomai.manifest import CausalChain, ComponentChange, EntityEntry, TickManifest
+from nomai.scene import SceneSnapshot
 
 logger = logging.getLogger(__name__)
 
@@ -187,4 +194,194 @@ def root_cause_recoverability_at_k(
         target=target,
         passed=rate >= target,
         detail=f"{recoverable}/{len(causal_chains)} chains have true cause in first {k} steps.",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Scene snapshot fidelity (Tier 1: Structural Fidelity)
+# ---------------------------------------------------------------------------
+
+
+def snapshot_entity_recall(
+    snapshot: SceneSnapshot,
+    ground_truth_entities: list[EntityEntry],
+) -> MetricResult:
+    """Fraction of alive ground-truth entities present in the scene snapshot.
+
+    For each alive entity in the ground truth, checks whether a matching
+    entity (by ``entity_id``) exists in the snapshot.
+
+    Args:
+        snapshot: Scene snapshot captured from the engine.
+        ground_truth_entities: Entity index entries (from ``entity_index()``).
+
+    Returns:
+        MetricResult with recall (0.0-1.0).  Target >= 1.0.
+    """
+    alive = [e for e in ground_truth_entities if e.alive]
+    if not alive:
+        return MetricResult(
+            name="snapshot_entity_recall",
+            dimension=EvalDimension.OBSERVABILITY,
+            value=1.0,
+            target=1.0,
+            passed=True,
+            detail="No alive entities in ground truth (vacuously correct).",
+        )
+
+    snapshot_ids = {e.entity_id for e in snapshot.entities}
+    found = sum(1 for e in alive if e.entity_id in snapshot_ids)
+    recall = found / len(alive)
+    return MetricResult(
+        name="snapshot_entity_recall",
+        dimension=EvalDimension.OBSERVABILITY,
+        value=recall,
+        target=1.0,
+        passed=recall >= 1.0,
+        detail=f"{found}/{len(alive)} alive entities found in snapshot.",
+    )
+
+
+def snapshot_entity_precision(
+    snapshot: SceneSnapshot,
+    ground_truth_entities: list[EntityEntry],
+) -> MetricResult:
+    """Fraction of snapshot entities that are alive in ground truth.
+
+    Checks that the snapshot doesn't contain hallucinated or dead entities.
+
+    Args:
+        snapshot: Scene snapshot captured from the engine.
+        ground_truth_entities: Entity index entries (from ``entity_index()``).
+
+    Returns:
+        MetricResult with precision (0.0-1.0).  Target >= 1.0.
+    """
+    if not snapshot.entities:
+        return MetricResult(
+            name="snapshot_entity_precision",
+            dimension=EvalDimension.OBSERVABILITY,
+            value=1.0,
+            target=1.0,
+            passed=True,
+            detail="No entities in snapshot (vacuously correct).",
+        )
+
+    alive_ids = {e.entity_id for e in ground_truth_entities if e.alive}
+    valid = sum(1 for e in snapshot.entities if e.entity_id in alive_ids)
+    precision = valid / len(snapshot.entities)
+    return MetricResult(
+        name="snapshot_entity_precision",
+        dimension=EvalDimension.OBSERVABILITY,
+        value=precision,
+        target=1.0,
+        passed=precision >= 1.0,
+        detail=f"{valid}/{len(snapshot.entities)} snapshot entities are alive in ground truth.",
+    )
+
+
+def snapshot_attribute_accuracy(
+    snapshot: SceneSnapshot,
+    ground_truth_entities: list[EntityEntry],
+) -> MetricResult:
+    """Accuracy of entity attributes in the scene snapshot.
+
+    For each entity present in both the snapshot and ground truth,
+    checks that ``entity_type`` and ``role`` match exactly.
+
+    Args:
+        snapshot: Scene snapshot captured from the engine.
+        ground_truth_entities: Entity index entries.
+
+    Returns:
+        MetricResult with accuracy (0.0-1.0).  Target >= 0.95.
+    """
+    gt_by_id = {e.entity_id: e for e in ground_truth_entities if e.alive}
+    snap_by_id = {e.entity_id: e for e in snapshot.entities}
+
+    matched_ids = set(gt_by_id.keys()) & set(snap_by_id.keys())
+    if not matched_ids:
+        return MetricResult(
+            name="snapshot_attribute_accuracy",
+            dimension=EvalDimension.OBSERVABILITY,
+            value=1.0,
+            target=0.95,
+            passed=True,
+            detail="No overlapping entities to compare (vacuously correct).",
+        )
+
+    correct = 0
+    mismatches: list[str] = []
+    for eid in matched_ids:
+        gt = gt_by_id[eid]
+        snap_ent = snap_by_id[eid]
+        ok = True
+        if snap_ent.entity_type != gt.entity_type:
+            ok = False
+            mismatches.append(f"entity {eid}: type {snap_ent.entity_type} != {gt.entity_type}")
+        if snap_ent.role != gt.role:
+            ok = False
+            mismatches.append(f"entity {eid}: role {snap_ent.role} != {gt.role}")
+        if ok:
+            correct += 1
+
+    accuracy = correct / len(matched_ids)
+    target = 0.95
+    mismatch_detail = f" Issues: {'; '.join(mismatches[:5])}" if mismatches else ""
+    return MetricResult(
+        name="snapshot_attribute_accuracy",
+        dimension=EvalDimension.OBSERVABILITY,
+        value=accuracy,
+        target=target,
+        passed=accuracy >= target,
+        detail=f"{correct}/{len(matched_ids)} entities have correct attributes.{mismatch_detail}",
+    )
+
+
+def snapshot_completeness(
+    snapshot: SceneSnapshot,
+    ground_truth_entities: list[EntityEntry],
+) -> MetricResult:
+    """Overall scene snapshot completeness: F1 of entity coverage.
+
+    Combines entity recall and precision into an F1 score representing
+    how completely the snapshot represents the ground-truth world state.
+
+    Args:
+        snapshot: Scene snapshot captured from the engine.
+        ground_truth_entities: Entity index entries.
+
+    Returns:
+        MetricResult with F1 score (0.0-1.0).  Target >= 0.95.
+    """
+    alive = [e for e in ground_truth_entities if e.alive]
+    if not alive and not snapshot.entities:
+        return MetricResult(
+            name="snapshot_completeness",
+            dimension=EvalDimension.OBSERVABILITY,
+            value=1.0,
+            target=0.95,
+            passed=True,
+            detail="Empty world and empty snapshot (vacuously correct).",
+        )
+
+    snapshot_ids = {e.entity_id for e in snapshot.entities}
+    alive_ids = {e.entity_id for e in alive}
+
+    true_positives = len(snapshot_ids & alive_ids)
+    recall = true_positives / len(alive_ids) if alive_ids else 1.0
+    precision = true_positives / len(snapshot_ids) if snapshot_ids else 1.0
+    f1 = (2 * precision * recall / (precision + recall)) if (precision + recall) > 0 else 0.0
+
+    target = 0.95
+    return MetricResult(
+        name="snapshot_completeness",
+        dimension=EvalDimension.OBSERVABILITY,
+        value=f1,
+        target=target,
+        passed=f1 >= target,
+        detail=(
+            f"Entity F1={f1:.3f} (precision={precision:.3f}, recall={recall:.3f}). "
+            f"Snapshot has {len(snapshot_ids)} entities, ground truth has {len(alive_ids)} alive."
+        ),
     )

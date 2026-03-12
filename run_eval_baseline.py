@@ -29,6 +29,7 @@ from nomai.eval.reproducibility import HashCheckpoint
 from nomai.eval.runner import EvalRunner
 from nomai.eval.verification import BugCorpusResult
 from nomai.manifest import ComponentChange, EntityEntry, TickManifest
+from nomai.scene import SceneSnapshot
 from nomai.verify import VerificationEngine
 
 GAME_WIDTH = 800.0
@@ -199,12 +200,18 @@ def collect_observability(
             except Exception:
                 pass  # Not all ticks may have changes
 
+    # Scene snapshot fidelity: capture snapshot and compare to entity_index
+    scene_snap = engine.scene_snapshot()
+    gt_entities = engine.entity_index()
+
     return {
         "manifests": manifests,
         "ground_truth_changes": ground_truth_changes,
         "ground_truth_states": ground_truth_states,
         "causal_chains": causal_chains,
         "ground_truth_causes": ground_truth_causes,
+        "scene_snapshot": scene_snap,
+        "snapshot_ground_truth_entities": gt_entities,
     }
 
 
@@ -581,11 +588,13 @@ def main() -> int:
     print(f"  Collisions: {collision_count}, Bricks destroyed: {bricks_destroyed}")
 
     # -- Collect dimension data ----------------------------------------------
-    print("\n[3/6] Collecting observability data...")
+    print("\n[3/6] Collecting observability data (incl. scene snapshot)...")
     obs_data = collect_observability(engine, manifests, roles)
+    snap_entities = obs_data["scene_snapshot"].entity_count
     print(f"  Ground truth: {len(obs_data['ground_truth_changes'])} changes, "
           f"{len(obs_data['ground_truth_states'])} entity states, "
           f"{len(obs_data['causal_chains'])} causal chains")
+    print(f"  Scene snapshot: {snap_entities} entities captured")
 
     print("\n[4/6] Collecting controllability data...")
     ctrl_data = collect_controllability(engine, roles)
@@ -616,6 +625,8 @@ def main() -> int:
         ground_truth_states=obs_data["ground_truth_states"],
         causal_chains=obs_data["causal_chains"],
         ground_truth_causes=obs_data["ground_truth_causes"],
+        scene_snapshot=obs_data["scene_snapshot"],
+        snapshot_ground_truth_entities=obs_data["snapshot_ground_truth_entities"],
         # Controllability
         command_results=ctrl_data["command_results"],
         latency_observations=ctrl_data["latency_observations"],
