@@ -29,6 +29,7 @@
 pub mod physics;
 pub mod render;
 pub mod replay;
+pub mod scene;
 pub mod snapshot;
 pub mod tick;
 

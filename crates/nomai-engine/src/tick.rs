@@ -503,6 +503,14 @@ impl TickLoop {
         self.tick_counter as f64 * self.fixed_dt
     }
 
+    /// Extract a [`SceneSnapshot`] of the current world state.
+    ///
+    /// This is the text equivalent of a rendered frame: it captures every
+    /// entity's spatial data, identity, visibility, and dynamic components.
+    pub fn scene_snapshot(&self) -> nomai_manifest::SceneSnapshot {
+        crate::scene::extract_scene_snapshot(&self.world, self.tick_counter, self.sim_time())
+    }
+
     /// The fixed time step in seconds per tick.
     pub fn fixed_dt(&self) -> f64 {
         self.fixed_dt
