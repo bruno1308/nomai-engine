@@ -570,6 +570,22 @@ impl PyNomaiEngine {
         }
     }
 
+    /// Capture a scene snapshot of the current world state.
+    ///
+    /// Returns a dict containing every entity's spatial data, identity,
+    /// and components. This is the text equivalent of a rendered frame.
+    fn scene_snapshot(&self, py: Python<'_>) -> PyResult<PyObject> {
+        let snapshot = self.loop_ref()?.scene_snapshot();
+        let json_str = serde_json::to_string(&snapshot).map_err(|e| {
+            pyo3::exceptions::PyRuntimeError::new_err(format!(
+                "failed to serialize SceneSnapshot to JSON: {e}"
+            ))
+        })?;
+        let json_mod = py.import("json")?;
+        let dict = json_mod.call_method1("loads", (json_str,))?;
+        Ok(dict.unbind())
+    }
+
     // -- Snapshot/Restore ---------------------------------------------------
 
     /// Capture a snapshot of the current engine state.
