@@ -44,7 +44,6 @@ from nomai.eval.verification import (
 )
 from nomai.eval.llm_client import MockLLMClient
 from nomai.eval.scene_qa import SceneQuestion
-from nomai.eval.action_prediction import PredictionCase
 from nomai.eval.reasoning import SpatialQuestion
 from nomai.manifest import (
     Aggregates,

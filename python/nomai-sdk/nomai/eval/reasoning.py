@@ -72,7 +72,7 @@ def _parse_score(response: str) -> int | None:
 
     Returns the first integer 1-5 found, or ``None`` if no valid score.
     """
-    match = re.search(r"\b([1-5])\b", response)
+    match = _SCORE_RE.search(response)
     if match:
         return int(match.group(1))
     return None

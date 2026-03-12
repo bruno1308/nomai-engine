@@ -21,12 +21,16 @@ from pathlib import Path
 
 from nomai.breakout_intents import build_breakout_suite
 from nomai.engine import NomaiEngine
+from nomai.eval.action_prediction import PredictionCase
 from nomai.eval.autonomy import TaskResult
 from nomai.eval.bug_corpus import full_corpus
 from nomai.eval.controllability import CommandResult, LatencyObservation
+from nomai.eval.llm_client import MockLLMClient
 from nomai.eval.metrics import MetricResult
+from nomai.eval.reasoning import generate_spatial_questions
 from nomai.eval.reproducibility import HashCheckpoint
 from nomai.eval.runner import EvalRunner
+from nomai.eval.scene_qa import generate_scene_questions
 from nomai.eval.verification import BugCorpusResult
 from nomai.manifest import ComponentChange, EntityEntry, TickManifest
 from nomai.scene import SceneSnapshot
@@ -537,6 +541,59 @@ def collect_autonomy(
     }
 
 
+def collect_tier2_tier3(engine: NomaiEngine) -> dict:
+    """Collect Tier 2/3 eval inputs from the engine.
+
+    Uses MockLLMClient for the baseline — this demonstrates the pipeline
+    works end-to-end without requiring real LLM API calls.  Mock answers
+    are derived from ground truth so all metrics should score ~1.0.
+    """
+    snap = engine.scene_snapshot()
+
+    # Scene QA questions (template-generated from snapshot)
+    qa_questions = generate_scene_questions(snap)
+
+    # Prediction cases: capture current tick + next tick
+    snap1 = engine.scene_snapshot()
+    engine.tick()
+    snap2 = engine.scene_snapshot()
+    prediction_cases = [PredictionCase(
+        current=snap1,
+        next_state=snap2,
+        game_rules=(
+            "Ball moves by velocity each tick. Ball bounces off walls and paddle. "
+            "Bricks are destroyed on collision with the ball."
+        ),
+    )]
+
+    # Build mock prediction JSON from actual next state
+    pred_dict: dict[str, float] = {}
+    for e in snap2.entities:
+        if e.position is not None:
+            pred_dict[f"{e.entity_id}_x"] = e.position[0]
+            pred_dict[f"{e.entity_id}_y"] = e.position[1]
+
+    # Spatial questions
+    spatial_questions = generate_spatial_questions(snap)
+
+    # Mock LLM: answers match ground truth (validates pipeline, not real eval)
+    mock_answers: list[str] = []
+    mock_answers.extend(q.expected_answer for q in qa_questions)
+    mock_answers.append(json.dumps(pred_dict))  # Action prediction JSON
+    mock_answers.extend(["4"] * 4)  # G-Eval scores (4/5 for all criteria)
+    mock_answers.extend(q.expected_answer for q in spatial_questions)
+    if not mock_answers:
+        mock_answers = ["mock"]
+    llm_client = MockLLMClient(responses=mock_answers)
+
+    return {
+        "scene_qa_questions": qa_questions,
+        "prediction_cases": prediction_cases,
+        "spatial_questions": spatial_questions,
+        "llm_client": llm_client,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -544,7 +601,7 @@ def collect_autonomy(
 def main() -> int:
     print("=" * 70)
     print("  NOMAI ENGINE -- Evaluation Framework Baseline")
-    print("  Running all 5 dimensions against live breakout session")
+    print("  Running all 5 dimensions + Tier 2/3 against live breakout session")
     print("=" * 70)
 
     if not FIXED_WASM.exists():
@@ -606,11 +663,18 @@ def main() -> int:
     print(f"  Hash checkpoints: {len(repro_data['hash_checkpoints'])}, "
           f"Snapshot pairs: {len(repro_data['snapshot_pairs'])}")
 
-    print("\n[6/6] Collecting verification & autonomy data...")
+    print("\n[6/7] Collecting verification & autonomy data...")
     verif_data = collect_verification()
     auto_data = collect_autonomy(manifests, engine)
     print(f"  Bug corpus: {len(verif_data['bug_results'])} scenarios, "
           f"Rules: {verif_data['expressible_rules']}/{verif_data['total_rules']}")
+
+    print("\n[7/7] Collecting Tier 2/3 eval data (Scene QA, Prediction, G-Eval, Spatial)...")
+    tier23 = collect_tier2_tier3(engine)
+    print(f"  Scene QA questions: {len(tier23['scene_qa_questions'])}")
+    print(f"  Prediction cases: {len(tier23['prediction_cases'])}")
+    print(f"  Spatial questions: {len(tier23['spatial_questions'])}")
+    print(f"  LLM client: MockLLMClient (ground-truth answers for pipeline validation)")
 
     # -- Run eval framework --------------------------------------------------
     print("\n" + "=" * 70)
@@ -619,7 +683,7 @@ def main() -> int:
 
     runner = EvalRunner()
     report = runner.run_all(
-        # Observability
+        # Observability (Tier 1)
         manifests=obs_data["manifests"],
         ground_truth_changes=obs_data["ground_truth_changes"],
         ground_truth_states=obs_data["ground_truth_states"],
@@ -641,6 +705,12 @@ def main() -> int:
         expressible_rules=verif_data["expressible_rules"],
         # Autonomy
         task_results=auto_data["task_results"],
+        # Tier 2/3 (Scene QA, Action Prediction, G-Eval, Spatial)
+        scene_qa_questions=tier23["scene_qa_questions"],
+        prediction_cases=tier23["prediction_cases"],
+        spatial_questions=tier23["spatial_questions"],
+        run_geval=True,
+        llm_client=tier23["llm_client"],
         # Metadata
         engine_version=engine.state_hash()[:12],
         complexity_tier="breakout",
