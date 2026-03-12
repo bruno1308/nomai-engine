@@ -16,6 +16,7 @@ from nomai.manifest import (
     TickManifest,
 )
 from nomai.replay import EngineSnapshot, ReplayLog, ReplayResult
+from nomai.scene import SceneSnapshot
 
 logger = logging.getLogger(__name__)
 
@@ -221,6 +222,18 @@ class NomaiEngine:
     def hot_swap_gameplay_wasm(self, wasm_bytes: bytes) -> None:
         """Hot-swap the current WASM gameplay module."""
         self._engine.hot_swap_gameplay_wasm(wasm_bytes)
+
+    # -- Scene snapshot ------------------------------------------------------
+
+    def scene_snapshot(self) -> SceneSnapshot:
+        """Capture a scene snapshot of the current world state.
+
+        Returns a structured text representation of every entity's
+        spatial data, identity, and components. This is the text
+        equivalent of a rendered frame.
+        """
+        raw = self._engine.scene_snapshot()
+        return SceneSnapshot.from_dict(raw)
 
     # -- Snapshot/Restore ----------------------------------------------------
 

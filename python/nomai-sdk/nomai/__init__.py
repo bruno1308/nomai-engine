@@ -41,6 +41,11 @@ from nomai.replay import (
     ReplayLog,
     ReplayResult,
 )
+from nomai.scene import (
+    SceneBounds,
+    SceneEntity,
+    SceneSnapshot,
+)
 
 __all__ = [
     "Aggregates",
@@ -65,6 +70,9 @@ __all__ = [
     "ReplayDivergence",
     "ReplayLog",
     "ReplayResult",
+    "SceneBounds",
+    "SceneEntity",
+    "SceneSnapshot",
     "TickManifest",
     "load_spec",
     "run_pipeline",
