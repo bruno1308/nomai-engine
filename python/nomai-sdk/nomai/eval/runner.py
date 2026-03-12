@@ -110,18 +110,11 @@ class EvalRunner:
     def compute_cw_ztvcr(task_results: list[TaskResult]) -> float:
         """Compute the north-star CW-ZTVCR metric.
 
-        Formula: ``sum(w_i * success_i) / sum(w_i)``
-        where ``success_i`` is 1 if the task fully succeeded.
+        Delegates to ``autonomy_mod.zero_touch_completion_rate`` to avoid
+        duplicating the formula.  Returns just the float value.
         """
-        if not task_results:
-            return 0.0
-        total_weight = sum(r.complexity_weight for r in task_results)
-        if total_weight == 0:
-            return 0.0
-        weighted_success = sum(
-            r.complexity_weight for r in task_results if r.fully_succeeded
-        )
-        return weighted_success / total_weight
+        result = autonomy_mod.zero_touch_completion_rate(task_results)
+        return result.value
 
     # -- Full run ------------------------------------------------------------
 

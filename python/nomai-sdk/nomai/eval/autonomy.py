@@ -45,10 +45,19 @@ class TaskResult:
 
     @property
     def fully_succeeded(self) -> bool:
-        """A task fully succeeds only if ALL conditions hold."""
+        """A task fully succeeds only if ALL conditions hold.
+
+        Per the design doc (Section 2), all five conditions must be met:
+        1. Intent verification suite passes
+        2. Replay hashes match (deterministic)
+        3. Zero human intervention
+        4. Converges within attempt budget (<=5 iterations)
+        5. Core performance gates met
+        """
         return (
             self.succeeded
             and self.human_interventions == 0
+            and self.iterations <= 5
             and self.replay_deterministic
             and self.perf_gates_met
         )

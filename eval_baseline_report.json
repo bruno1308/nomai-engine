@@ -1,0 +1,292 @@
+{
+  "timestamp": "2026-03-12T02:08:11.058355+00:00",
+  "engine_version": "b1ce98b4d1a7",
+  "dimensions": {
+    "observability": {
+      "dimension": "observability",
+      "metrics": [
+        {
+          "name": "manifest_change_recall",
+          "dimension": "observability",
+          "value": 1.0,
+          "target": 0.995,
+          "passed": true,
+          "detail": "901/901 ground-truth changes found in manifests."
+        },
+        {
+          "name": "state_reconstruction_fidelity",
+          "dimension": "observability",
+          "value": 1.0,
+          "target": 1.0,
+          "passed": true,
+          "detail": "3/3 entities reconstructed correctly."
+        },
+        {
+          "name": "root_cause_recoverability_at_3",
+          "dimension": "observability",
+          "value": 1.0,
+          "target": 0.9,
+          "passed": true,
+          "detail": "No causal chains to evaluate (vacuously correct)."
+        }
+      ],
+      "score": 1.0,
+      "passed": true
+    },
+    "controllability": {
+      "dimension": "controllability",
+      "metrics": [
+        {
+          "name": "command_semantic_reliability",
+          "dimension": "controllability",
+          "value": 1.0,
+          "target": 0.99,
+          "passed": true,
+          "detail": "3/3 commands produced expected manifest delta."
+        },
+        {
+          "name": "action_effect_latency_p95",
+          "dimension": "controllability",
+          "value": 0.0,
+          "target": 1.0,
+          "passed": true,
+          "detail": "P95 latency: 0.0 ticks across 3 observations."
+        },
+        {
+          "name": "api_capability_coverage",
+          "dimension": "controllability",
+          "value": 1.0,
+          "target": 0.95,
+          "passed": true,
+          "detail": "18/18 required capabilities exposed."
+        }
+      ],
+      "score": 1.0,
+      "passed": true
+    },
+    "reproducibility": {
+      "dimension": "reproducibility",
+      "metrics": [
+        {
+          "name": "replay_hash_match_rate",
+          "dimension": "reproducibility",
+          "value": 1.0,
+          "target": 1.0,
+          "passed": true,
+          "detail": "5/5 checkpoints match."
+        },
+        {
+          "name": "snapshot_fidelity",
+          "dimension": "reproducibility",
+          "value": 0.0,
+          "target": 1.0,
+          "passed": false,
+          "detail": "0/1 snapshot-restore-replay hashes match."
+        }
+      ],
+      "score": 0.5,
+      "passed": false
+    },
+    "verification": {
+      "dimension": "verification",
+      "metrics": [
+        {
+          "name": "intent_expressibility_coverage",
+          "dimension": "verification",
+          "value": 1.0,
+          "target": 0.9,
+          "passed": true,
+          "detail": "13/13 rules expressible as intent specs."
+        },
+        {
+          "name": "bug_detection_precision",
+          "dimension": "verification",
+          "value": 1.0,
+          "target": 0.95,
+          "passed": true,
+          "detail": "Precision: 5 TP, 0 FP."
+        },
+        {
+          "name": "bug_detection_recall",
+          "dimension": "verification",
+          "value": 1.0,
+          "target": 0.95,
+          "passed": true,
+          "detail": "Recall: 5 TP, 0 FN."
+        },
+        {
+          "name": "diagnosis_to_fix_success_at_2",
+          "dimension": "verification",
+          "value": 1.0,
+          "target": 0.7,
+          "passed": true,
+          "detail": "5/5 bugs fixed in <=2 attempts."
+        }
+      ],
+      "score": 1.0,
+      "passed": true
+    },
+    "autonomy": {
+      "dimension": "autonomy",
+      "metrics": [
+        {
+          "name": "cw_ztvcr",
+          "dimension": "autonomy",
+          "value": 1.0,
+          "target": null,
+          "passed": true,
+          "detail": "1/1 tasks fully succeeded (weighted: 1.000)."
+        },
+        {
+          "name": "convergence_median",
+          "dimension": "autonomy",
+          "value": 2,
+          "target": 5.0,
+          "passed": true,
+          "detail": "Median 2.0 iterations across 1 succeeded tasks."
+        },
+        {
+          "name": "human_intervention_count",
+          "dimension": "autonomy",
+          "value": 0.0,
+          "target": 0.0,
+          "passed": true,
+          "detail": "0 total interventions across 1 tasks (mean 0.00)."
+        }
+      ],
+      "score": 1.0,
+      "passed": true
+    }
+  },
+  "cw_ztvcr": 1.0,
+  "metrics": [
+    {
+      "name": "manifest_change_recall",
+      "dimension": "observability",
+      "value": 1.0,
+      "target": 0.995,
+      "passed": true,
+      "detail": "901/901 ground-truth changes found in manifests."
+    },
+    {
+      "name": "state_reconstruction_fidelity",
+      "dimension": "observability",
+      "value": 1.0,
+      "target": 1.0,
+      "passed": true,
+      "detail": "3/3 entities reconstructed correctly."
+    },
+    {
+      "name": "root_cause_recoverability_at_3",
+      "dimension": "observability",
+      "value": 1.0,
+      "target": 0.9,
+      "passed": true,
+      "detail": "No causal chains to evaluate (vacuously correct)."
+    },
+    {
+      "name": "command_semantic_reliability",
+      "dimension": "controllability",
+      "value": 1.0,
+      "target": 0.99,
+      "passed": true,
+      "detail": "3/3 commands produced expected manifest delta."
+    },
+    {
+      "name": "action_effect_latency_p95",
+      "dimension": "controllability",
+      "value": 0.0,
+      "target": 1.0,
+      "passed": true,
+      "detail": "P95 latency: 0.0 ticks across 3 observations."
+    },
+    {
+      "name": "api_capability_coverage",
+      "dimension": "controllability",
+      "value": 1.0,
+      "target": 0.95,
+      "passed": true,
+      "detail": "18/18 required capabilities exposed."
+    },
+    {
+      "name": "replay_hash_match_rate",
+      "dimension": "reproducibility",
+      "value": 1.0,
+      "target": 1.0,
+      "passed": true,
+      "detail": "5/5 checkpoints match."
+    },
+    {
+      "name": "snapshot_fidelity",
+      "dimension": "reproducibility",
+      "value": 0.0,
+      "target": 1.0,
+      "passed": false,
+      "detail": "0/1 snapshot-restore-replay hashes match."
+    },
+    {
+      "name": "intent_expressibility_coverage",
+      "dimension": "verification",
+      "value": 1.0,
+      "target": 0.9,
+      "passed": true,
+      "detail": "13/13 rules expressible as intent specs."
+    },
+    {
+      "name": "bug_detection_precision",
+      "dimension": "verification",
+      "value": 1.0,
+      "target": 0.95,
+      "passed": true,
+      "detail": "Precision: 5 TP, 0 FP."
+    },
+    {
+      "name": "bug_detection_recall",
+      "dimension": "verification",
+      "value": 1.0,
+      "target": 0.95,
+      "passed": true,
+      "detail": "Recall: 5 TP, 0 FN."
+    },
+    {
+      "name": "diagnosis_to_fix_success_at_2",
+      "dimension": "verification",
+      "value": 1.0,
+      "target": 0.7,
+      "passed": true,
+      "detail": "5/5 bugs fixed in <=2 attempts."
+    },
+    {
+      "name": "cw_ztvcr",
+      "dimension": "autonomy",
+      "value": 1.0,
+      "target": null,
+      "passed": true,
+      "detail": "1/1 tasks fully succeeded (weighted: 1.000)."
+    },
+    {
+      "name": "convergence_median",
+      "dimension": "autonomy",
+      "value": 2,
+      "target": 5.0,
+      "passed": true,
+      "detail": "Median 2.0 iterations across 1 succeeded tasks."
+    },
+    {
+      "name": "human_intervention_count",
+      "dimension": "autonomy",
+      "value": 0.0,
+      "target": 0.0,
+      "passed": true,
+      "detail": "0 total interventions across 1 tasks (mean 0.00)."
+    }
+  ],
+  "complexity_tier": "breakout",
+  "_baseline_context": {
+    "sim_ticks": 300,
+    "entity_count": 24,
+    "collision_count": 1,
+    "bricks_destroyed": 1,
+    "sim_time_ms": 8.1
+  }
+}
