@@ -141,17 +141,25 @@ def launch_agent(
     """
     root = project_root or PROJECT_ROOT
 
-    # Create isolated workdir
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    # Create isolated workdir (microseconds to avoid collisions in batch runs)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
     workdir = root / "eval_workdir" / timestamp
     workdir.mkdir(parents=True, exist_ok=True)
 
     # Read GDD
     gdd_path = root / "eval_tasks" / f"{config.task}.md"
+    if not gdd_path.exists():
+        raise FileNotFoundError(
+            f"GDD not found for task '{config.task}': {gdd_path}"
+        )
     gdd_content = gdd_path.read_text(encoding="utf-8")
 
     # Read SDK reference
     sdk_ref_path = root / "docs" / "ai" / "nomai-sdk-reference.md"
+    if not sdk_ref_path.exists():
+        raise FileNotFoundError(
+            f"SDK reference not found: {sdk_ref_path}"
+        )
     sdk_ref_content = sdk_ref_path.read_text(encoding="utf-8")
 
     # Build user prompt
