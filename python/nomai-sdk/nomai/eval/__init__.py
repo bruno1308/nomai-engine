@@ -9,7 +9,7 @@ Verified Completion Rate).
 """
 
 from nomai.eval.action_prediction import PredictionCase, action_prediction_accuracy
-from nomai.eval.llm_client import LLMClient, MockLLMClient
+from nomai.eval.llm_client import ClaudeCodeLLMClient, LLMClient, MockLLMClient
 from nomai.eval.metrics import (
     DimensionScore,
     EvalDimension,
@@ -33,6 +33,7 @@ __all__ = [
     "EvalReport",
     "EvalRunner",
     "GEVAL_CRITERIA",
+    "ClaudeCodeLLMClient",
     "LLMClient",
     "MetricResult",
     "MockLLMClient",
