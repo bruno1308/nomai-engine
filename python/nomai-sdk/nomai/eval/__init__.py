@@ -9,6 +9,7 @@ Verified Completion Rate).
 """
 
 from nomai.eval.action_prediction import PredictionCase, action_prediction_accuracy
+from nomai.eval.agent_harness import AgentConfig, AgentRun, launch_agent, run_agent_eval, score_game
 from nomai.eval.llm_client import ClaudeCodeLLMClient, LLMClient, MockLLMClient
 from nomai.eval.metrics import (
     DimensionScore,
@@ -28,6 +29,8 @@ from nomai.eval.runner import EvalRunner
 from nomai.eval.scene_qa import SceneQuestion, generate_scene_questions, scene_qa_accuracy
 
 __all__ = [
+    "AgentConfig",
+    "AgentRun",
     "DimensionScore",
     "EvalDimension",
     "EvalReport",
@@ -41,6 +44,9 @@ __all__ = [
     "SceneQuestion",
     "SpatialQuestion",
     "action_prediction_accuracy",
+    "launch_agent",
+    "run_agent_eval",
+    "score_game",
     "geval_all",
     "geval_score",
     "generate_scene_questions",
