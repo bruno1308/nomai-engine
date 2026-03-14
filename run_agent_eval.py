@@ -33,8 +33,8 @@ def main() -> None:
     )
     parser.add_argument(
         "--judge-model",
-        default="sonnet",
-        help="Model for LLM-judged scoring (default: sonnet)",
+        default=None,
+        help="Model for LLM-judged scoring (omit to skip; e.g. haiku, sonnet)",
     )
     args = parser.parse_args()
 

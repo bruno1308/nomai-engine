@@ -51,7 +51,7 @@ class TestAgentConfig:
 
     def test_judge_model_default(self) -> None:
         config = AgentConfig(task="breakout")
-        assert config.judge_model == "sonnet"
+        assert config.judge_model is None
 
     def test_judge_model_custom(self) -> None:
         config = AgentConfig(task="breakout", judge_model="opus")
@@ -465,6 +465,7 @@ class TestRunAgentEval:
 
         report = run_agent_eval(
             task="breakout", model="sonnet", max_budget_usd=5.0,
+            judge_model="sonnet",
             project_root=tmp_path,
         )
 

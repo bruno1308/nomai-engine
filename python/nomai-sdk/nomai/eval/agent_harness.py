@@ -84,7 +84,7 @@ class AgentConfig:
 
     task: str
     model: str = "sonnet"
-    judge_model: str = "sonnet"
+    judge_model: str | None = None
     max_budget_usd: float = 5.0
     timeout_s: int = 600
 
@@ -429,7 +429,7 @@ def run_agent_eval(
     model: str = "sonnet",
     max_budget_usd: float = 5.0,
     *,
-    judge_model: str = "sonnet",
+    judge_model: str | None = None,
     project_root: Path | None = None,
 ) -> dict:
     """Run a complete agent evaluation: launch, score, and report.
@@ -457,7 +457,7 @@ def run_agent_eval(
     # --- Header ---
     print("=" * 60)
     print(f"  Agent Eval: task={config.task}  model={config.model}")
-    print(f"  judge={config.judge_model}")
+    print(f"  judge={config.judge_model or 'none (deep scoring off)'}")
     print(f"  budget=${config.max_budget_usd:.2f}  timeout={config.timeout_s}s")
     print("=" * 60)
 
