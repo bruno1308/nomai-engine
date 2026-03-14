@@ -407,6 +407,7 @@ class TestRunAgentEval:
             ),
             "eval_report": None,
             "ground_truth": {"entity_count": 24, "replay_deterministic": True},
+            "llm_scores": None,
         }
 
         report = run_agent_eval(
@@ -424,6 +425,55 @@ class TestRunAgentEval:
         assert report["task_result"]["succeeded"] is True
         # Verify report was saved
         assert (tmp_path / "eval_agent_report.json").exists()
+
+    @patch("nomai.eval.agent_harness.score_game")
+    @patch("nomai.eval.agent_harness.launch_agent")
+    def test_report_includes_llm_scores(
+        self,
+        mock_launch: MagicMock,
+        mock_score: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """run_agent_eval should include llm_scores in the report."""
+        mock_run = MagicMock(spec=AgentRun)
+        mock_run.exit_code = 0
+        mock_run.wall_time_s = 10.0
+        mock_run.signal = "DONE"
+        mock_run.game_exists = True
+        mock_run.workdir = tmp_path / "eval_workdir" / "mock_run"
+        mock_run.workdir.mkdir(parents=True, exist_ok=True)
+        mock_run.stdout = "agent output"
+        mock_run.stderr = ""
+        mock_launch.return_value = mock_run
+
+        mock_score.return_value = {
+            "task_result": TaskResult(
+                task_id="breakout", succeeded=True, replay_deterministic=True,
+            ),
+            "eval_report": None,
+            "ground_truth": {"entity_count": 24},
+            "llm_scores": {
+                "judge_model": "sonnet",
+                "scene_qa_accuracy": 0.85,
+                "geval_completeness": 0.75,
+                "geval_clarity": 0.80,
+                "geval_spatial_accuracy": 0.70,
+                "geval_actionability": 0.65,
+                "multihop_spatial_accuracy": 0.60,
+            },
+        }
+
+        report = run_agent_eval(
+            task="breakout", model="sonnet", max_budget_usd=5.0,
+            project_root=tmp_path,
+        )
+
+        assert "llm_scores" in report
+        assert report["llm_scores"]["scene_qa_accuracy"] == 0.85
+        # Verify score_game was called with judge_model
+        mock_score.assert_called_once()
+        call_kwargs = mock_score.call_args[1]
+        assert call_kwargs["judge_model"] == "sonnet"
 
 
 # ---------------------------------------------------------------------------

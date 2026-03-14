@@ -429,6 +429,7 @@ def run_agent_eval(
     model: str = "sonnet",
     max_budget_usd: float = 5.0,
     *,
+    judge_model: str = "sonnet",
     project_root: Path | None = None,
 ) -> dict:
     """Run a complete agent evaluation: launch, score, and report.
@@ -437,22 +438,26 @@ def run_agent_eval(
         task: GDD task name.
         model: Claude model alias.
         max_budget_usd: Maximum spend.
+        judge_model: Model alias used for LLM-judged scoring.
         project_root: Override for the project root directory.
 
     Returns:
-        Report dict with ``agent_meta``, ``task_result``, and ``ground_truth``.
+        Report dict with ``agent_meta``, ``task_result``, ``ground_truth``,
+        and ``llm_scores``.
     """
     root = project_root or PROJECT_ROOT
 
     config = AgentConfig(
         task=task,
         model=model,
+        judge_model=judge_model,
         max_budget_usd=max_budget_usd,
     )
 
     # --- Header ---
     print("=" * 60)
     print(f"  Agent Eval: task={config.task}  model={config.model}")
+    print(f"  judge={config.judge_model}")
     print(f"  budget=${config.max_budget_usd:.2f}  timeout={config.timeout_s}s")
     print("=" * 60)
 
@@ -473,7 +478,7 @@ def run_agent_eval(
 
     # --- Score ---
     print("\n[2/3] Scoring game...")
-    score = score_game(agent_run, project_root=root)
+    score = score_game(agent_run, project_root=root, judge_model=config.judge_model)
     task_result: TaskResult = score["task_result"]
     print(f"  succeeded: {task_result.succeeded}")
     print(f"  replay_deterministic: {task_result.replay_deterministic}")
@@ -492,6 +497,7 @@ def run_agent_eval(
         },
         "task_result": asdict(task_result),
         "ground_truth": score["ground_truth"],
+        "llm_scores": score.get("llm_scores"),
     }
 
     # --- Save report ---
@@ -500,6 +506,12 @@ def run_agent_eval(
 
     # --- Verdict ---
     print("\n[3/3] Verdict")
+    llm_scores = score.get("llm_scores")
+    if llm_scores:
+        print(f"\n  LLM Scores (judge={llm_scores['judge_model']}):")
+        for key, val in llm_scores.items():
+            if key != "judge_model":
+                print(f"    {key}: {val:.2f}")
     if task_result.fully_succeeded:
         verdict = "PASS"
     elif task_result.succeeded:
