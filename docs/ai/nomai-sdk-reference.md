@@ -1,18 +1,30 @@
 # Nomai SDK Reference (for AI agents)
 
 > This document helps you build games with the Nomai engine.
-> For a complete working example, read `run_eval_baseline.py`.
+> The engine has two layers: **Python** for setup and verification,
+> **WASM (AssemblyScript)** for runtime game logic.
+
+## Architecture — What Goes Where
+
+| Layer | Language | Responsibility |
+|-------|----------|----------------|
+| **Python** | Python 3.12+ | Engine setup, entity spawning, physics config, verification, snapshots |
+| **WASM** | AssemblyScript | Runtime game logic: collision responses, scoring, state machines |
+
+**Why two layers?** The engine runs a tick loop that drives physics and renders
+every frame. Python can't inject code into this loop — only WASM runs inside
+it. Game logic written in Python only runs during headless simulation
+(`engine.tick()`). Game logic written in WASM runs in both headless and visual
+mode (`engine.run()`). If you want your game to work visually, put runtime
+logic in WASM.
 
 ## Quick Start
 
 ```python
 from nomai.engine import NomaiEngine
-from nomai.scene import SceneSnapshot
 
 engine = NomaiEngine(headless=True, fixed_dt=1.0/60.0)
 ```
-
-See working example: `run_eval_baseline.py` (lines 73-156 for full setup)
 
 ## Core Concepts
 
@@ -30,34 +42,34 @@ See working example: `run_eval_baseline.py` (lines 73-156 for full setup)
 - **Physics**: Rapier2D-based. You must `init_physics()` before registering physics
   bodies. Bodies can be `"dynamic"` (moves), `"kinematic"` (player-controlled),
   or `"static"` (fixed).
+- **Coordinate System**: Y-up (math convention). Y=0 is the bottom of the screen,
+  Y=600 is the top. Place bricks at high Y, paddle at low Y.
+- **Collision Routing**: When physics detects a collision, the engine automatically
+  calls the WASM export `on_collision(entity_a: i64, entity_b: i64)` if it exists.
+  Your WASM module decides what to do (despawn, score, etc.).
 
-## API Reference
+## Python API Reference
 
 ### Engine Setup
 
-| Step | Method | Signature | Example |
-|------|--------|-----------|---------|
-| Create engine | `NomaiEngine()` | `NomaiEngine(headless=True, fixed_dt=1.0/60.0)` | `run_eval_baseline.py:75` |
-| Register component | `register_component()` | `engine.register_component(name: str)` | `:76-81` |
-| Init physics | `init_physics()` | `engine.init_physics()` | `:82` |
+| Method | Signature |
+|--------|-----------|
+| Create engine | `NomaiEngine(headless=True, fixed_dt=1.0/60.0)` |
+| Register component | `engine.register_component(name: str)` |
+| Init physics | `engine.init_physics()` |
 
 ### Entity Management
 
-| Step | Method | Signature | Example |
-|------|--------|-----------|---------|
-| Spawn entity | `spawn_entity()` | `engine.spawn_entity(entity_type: str, role: str, components: dict = None)` | `:84-106` |
-| Despawn entity | `despawn_entity()` | `engine.despawn_entity(entity_id: int)` | N/A |
-| Set component | `set_component()` | `engine.set_component(entity_id: int, component: str, value: Any)` | N/A |
-| Get entity | `get_entity()` | `engine.get_entity(entity_id: int) -> EntityEntry` | N/A |
-| List entities | `entity_index()` | `engine.entity_index() -> list[EntityEntry]` | `:110` |
+| Method | Signature |
+|--------|-----------|
+| Spawn entity | `engine.spawn_entity(entity_type: str, role: str, components: dict = None)` |
+| Despawn entity | `engine.despawn_entity(entity_id: int)` |
+| Set component | `engine.set_component(entity_id: int, component: str, value: Any)` |
+| Get entity | `engine.get_entity(entity_id: int) -> EntityEntry` |
+| List entities | `engine.entity_index() -> list[EntityEntry]` |
 
 ### Physics Bodies
 
-| Step | Method | Signature | Example |
-|------|--------|-----------|---------|
-| Register body | `register_physics_entity()` | See below | `:115-151` |
-
-Full signature:
 ```python
 engine.register_physics_entity(
     entity_id: int,
@@ -75,26 +87,117 @@ engine.register_physics_entity(
 
 ### Simulation
 
-| Step | Method | Signature | Example |
-|------|--------|-----------|---------|
-| Single tick | `tick()` | `engine.tick() -> TickManifest` | `:108` |
-| Multiple ticks | `run_ticks()` | `engine.run_ticks(n: int) -> list[TickManifest]` | N/A |
-| Conditional run | `run_until()` | `engine.run_until(condition, max_ticks=10000)` | N/A |
+| Method | Signature |
+|--------|-----------|
+| Single tick | `engine.tick() -> TickManifest` |
+| Multiple ticks | `engine.run_ticks(n: int) -> list[TickManifest]` |
+| Visual window | `engine.run(title="Game", width=800, height=600)` |
 
 ### Observation
 
-| Step | Method | Signature | Example |
-|------|--------|-----------|---------|
-| Scene snapshot | `scene_snapshot()` | `engine.scene_snapshot() -> SceneSnapshot` | N/A |
-| Snapshot text | `summary()` | `snapshot.summary() -> str` | N/A |
-| State hash | `state_hash()` | `engine.state_hash() -> str` | N/A |
-| Manifest history | `manifest_history()` | `engine.manifest_history() -> list[TickManifest]` | N/A |
+| Method | Signature |
+|--------|-----------|
+| Scene snapshot | `engine.scene_snapshot() -> SceneSnapshot` |
+| Snapshot text | `snapshot.summary() -> str` |
+| State hash | `engine.state_hash() -> str` |
 
-### WASM Gameplay
+### WASM
 
-| Step | Method | Signature | Example |
-|------|--------|-----------|---------|
-| Load WASM | `load_gameplay_wasm()` | `engine.load_gameplay_wasm(wasm_bytes: bytes)` | `:153-154` |
+| Method | Signature |
+|--------|-----------|
+| Load WASM | `engine.load_gameplay_wasm(wasm_bytes: bytes)` |
+| Call WASM export | `engine.call_wasm_export(name: str, *args: int)` |
+
+## WASM Gameplay (AssemblyScript)
+
+### How Collision Routing Works
+
+The engine tick loop is:
+1. Run physics → detect collisions
+2. Call WASM `tick()` export
+3. For each collision pair, call WASM `on_collision(entity_a, entity_b)` if exported
+4. Drain all WASM commands → apply to world → update manifest
+
+Your WASM module receives collision pairs automatically. You decide what to do
+with them (check entity types, despawn, update score, etc.).
+
+### Host API (available from WASM)
+
+These functions are imported from the `"nomai"` namespace in your AssemblyScript:
+
+**Read functions:**
+- `get_entity_count(): i32` — number of alive entities
+- `sim_time(): f64` — current simulation time in seconds
+- `tick_number(): i64` — current tick count
+
+**Write functions (deferred — applied after WASM finishes):**
+- `set_component(entityId, name, valueJson, reason)` — update a component (JSON value)
+- `despawn_entity(entityId, reason)` — remove an entity
+- `spawn_semantic(identityJson, componentsJson, reason)` — spawn a tracked entity
+- `emit_event(eventJson)` — emit a game event for the manifest
+- `log_msg(level, message)` — log (0=trace, 1=debug, 2=info, 3=warn, 4=error)
+
+Every write carries a `reason` string that feeds into the manifest's causal chain.
+
+### Writing a WASM Gameplay Module
+
+Create an AssemblyScript file (e.g. `gameplay/assembly/my_game.ts`):
+
+```typescript
+import {
+  get_entity_count, tick_number,
+  set_component, despawn_entity, emit_event, log_msg,
+} from "./host";
+
+// Module-local state (resets on hot-swap — persistent state lives in ECS)
+let score: i32 = 0;
+
+// Called once per tick after physics
+export function tick(): void {
+  // Per-tick logic here (e.g. push score to ECS)
+}
+
+// Called automatically for each physics collision pair
+export function on_collision(entityA: i64, entityB: i64): void {
+  // Check entity types and respond
+  // e.g. despawn a brick, update score, emit event
+  despawn_entity(entityA, "destroyed_by_collision");
+  score += 100;
+}
+```
+
+### Compiling WASM
+
+```bash
+cd gameplay
+npm install                    # first time only
+npx asc assembly/my_game.ts --outFile build/my_game.wasm --optimize --exportRuntime
+```
+
+### Loading WASM in Python
+
+```python
+from pathlib import Path
+
+wasm_path = Path("gameplay/build/my_game.wasm")
+engine.load_gameplay_wasm(wasm_path.read_bytes())
+```
+
+### Example: Breakout Collision Handler
+
+See `gameplay/assembly/breakout.ts` for a complete example. The key pattern:
+
+```typescript
+export function on_collision(entityA: i64, entityB: i64): void {
+  // The engine calls this for every collision pair.
+  // You need to figure out which entity is which and respond.
+  // For breakout: if one entity is a brick, despawn it.
+  despawn_entity(entityA, "brick_destroyed_by_ball");
+  despawn_entity(entityB, "brick_destroyed_by_ball");
+  // The engine ignores despawn commands for already-dead entities,
+  // so it's safe to despawn both — only the brick will actually die.
+}
+```
 
 ## Common Patterns
 
@@ -115,7 +218,7 @@ engine.init_physics()
 # 4. Spawn entities with initial components
 engine.spawn_entity("projectile", "ball", {
     "position": {"x": 400, "y": 300},
-    "velocity": {"dx": 200, "dy": -150},
+    "velocity": {"dx": 200, "dy": 300},  # positive dy = upward
 })
 
 # 5. Tick once to apply spawns
@@ -127,14 +230,15 @@ ball_id = next(e.entity_id for e in index if e.role == "ball")
 
 # 7. Register physics bodies using entity IDs
 engine.register_physics_entity(
-    ball_id, 400, 300, 200, -150,
+    ball_id, 400, 300, 200, 300,
     "dynamic", "circle",
     collider_radius=8.0,
     restitution=1.0,
 )
 
-# 8. Load gameplay WASM
-wasm_bytes = Path("gameplay/build/gameplay.wasm").read_bytes()
+# 8. Compile and load gameplay WASM (game logic lives here)
+# See "Compiling WASM" section above
+wasm_bytes = Path("gameplay/build/my_game.wasm").read_bytes()
 engine.load_gameplay_wasm(wasm_bytes)
 ```
 
@@ -144,19 +248,17 @@ engine.load_gameplay_wasm(wasm_bytes)
 # After running ticks, check the scene
 snapshot = engine.scene_snapshot()
 print(snapshot.summary())  # Human-readable game state
-
-# Check specific entities
-ball = snapshot.entity_by_role("ball")
-bricks = snapshot.entities_by_role("brick")
-print(f"Ball position: {ball}")
-print(f"Remaining bricks: {len(bricks)}")
 ```
 
-### Handling Collisions
+### Visual Mode
 
-The baseline handles brick destruction by checking manifests for collision events.
-See `run_eval_baseline.py:618-645` for the simulation loop that despawns bricks
-on ball-brick collision.
+```python
+# Opens a window — WASM game logic runs every frame
+engine.run(title="My Game", width=800, height=600)
+```
+
+The visual output and the headless simulation produce identical results
+because both use the same tick loop (physics → WASM → commands → manifest).
 
 ## File Locations
 
@@ -165,13 +267,16 @@ on ball-brick collision.
 | Engine class | `python/nomai-sdk/nomai/engine.py` |
 | Scene classes | `python/nomai-sdk/nomai/scene.py` |
 | Manifest types | `python/nomai-sdk/nomai/manifest.py` |
-| WASM gameplay | `gameplay/build/gameplay.wasm` |
-| Working example | `run_eval_baseline.py` |
+| Host API bindings | `gameplay/assembly/host.ts` |
+| Example: breakout | `gameplay/assembly/breakout.ts` |
+| WASM build output | `gameplay/build/` |
 
 ## Debugging Tips
 
 - If entities aren't appearing: did you call `engine.tick()` after spawning?
 - If physics aren't working: did you call `init_physics()` before `register_physics_entity()`?
 - If ball passes through walls: check `restitution=1.0` and collider dimensions
+- If collisions don't trigger game logic: does your WASM export `on_collision`?
 - To see what changed: inspect the `TickManifest` returned by `tick()`
 - To see full game state: call `engine.scene_snapshot().summary()`
+- Coordinate system is Y-up: paddle at low Y (bottom), bricks at high Y (top)

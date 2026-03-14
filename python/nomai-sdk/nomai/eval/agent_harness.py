@@ -28,7 +28,7 @@ from nomai.eval.reasoning import (
     multihop_spatial_accuracy,
 )
 from nomai.eval.scene_qa import generate_scene_questions, scene_qa_accuracy
-from nomai.scene import SceneSnapshot
+from nomai.scene import SceneEntity, SceneSnapshot
 
 logger = logging.getLogger(__name__)
 
@@ -45,27 +45,37 @@ CRITICAL: You MUST write ALL files to your current working directory. Do NOT \
 use `cd` to navigate elsewhere. Do NOT write files to parent directories or \
 any absolute path. Use only relative paths like `game.py`, `snapshot.json`, etc.
 
+ARCHITECTURE: The Nomai engine has two layers:
+- Python: engine setup, entity spawning, physics config, verification, snapshots.
+- WASM (AssemblyScript): runtime game logic (collision responses, scoring, state machines).
+Game logic written in Python only runs during headless simulation (engine.tick()). \
+Game logic written in WASM runs in BOTH headless and visual mode (engine.run()). \
+If you want your game to work visually, put runtime logic in WASM.
+
 Your task:
 1. Read the Game Design Document (GDD) provided in the prompt.
 2. Read the SDK reference provided in the prompt.
-3. Write a Python script called `game.py` in the current directory.
-4. Run the script to verify it works.
-5. Use snapshot.summary() to inspect the game state visually.
-6. Fix any issues you find by iterating on the script.
-7. Save the final snapshot as JSON for scoring:
-   import json
-   with open("snapshot.json", "w") as f:
-       json.dump(snapshot.to_dict(), f)
-8. When you are satisfied the game works correctly, create a file called DONE.txt.
-9. If you are stuck and cannot make further progress, create a file called STUCK.txt \
-with a description of what went wrong.
+3. Write an AssemblyScript gameplay module for collision/game logic.
+   - Import host functions from "./host" (see gameplay/assembly/host.ts).
+   - Export `tick()` and `on_collision(entityA: i64, entityB: i64)`.
+   - Save the .ts file under gameplay/assembly/ in the project directory.
+4. Compile the AssemblyScript to WASM using npx asc.
+5. Write a Python script called `game.py` in the current directory.
+   - Sets up the engine, spawns entities, registers physics, loads your WASM.
+   - Runs the simulation (WASM handles collisions automatically).
+   - Prints snapshot.summary() and saves snapshot.json.
+6. Run game.py to verify it works.
+7. Use snapshot.summary() to inspect game state — the engine is headless.
+8. Fix any issues by iterating on the AssemblyScript and/or Python.
+9. When satisfied, create DONE.txt. If stuck, create STUCK.txt.
 
 Important notes:
-- Read run_eval_baseline.py first to understand the engine patterns.
-- Use snapshot.summary() to inspect game state — the engine is headless, there is no GUI.
+- The coordinate system is Y-up: Y=0 is bottom of screen, Y=600 is top.
 - Register all components before spawning entities.
 - Call init_physics() before creating any physics bodies.
 - Tick once after spawning entities to apply the spawns before registering physics bodies.
+- Game logic in Python only runs headlessly. For logic that must work in both \
+headless and visual mode, put it in WASM (e.g. collision responses, scoring).
 - ALL output files (game.py, snapshot.json, DONE.txt) MUST be in the current directory.
 """
 
@@ -206,13 +216,24 @@ def launch_agent(
         )
     sdk_ref_content = sdk_ref_path.read_text(encoding="utf-8")
 
+    # Read host.ts so agent knows the WASM host API
+    host_ts_path = root / "gameplay" / "assembly" / "host.ts"
+    host_ts_content = ""
+    if host_ts_path.exists():
+        host_ts_content = host_ts_path.read_text(encoding="utf-8")
+
     # Build user prompt
     prompt = (
         f"## Game Design Document\n\n{gdd_content}\n\n"
         f"## SDK Reference\n\n{sdk_ref_content}\n\n"
+        f"## WASM Host API (gameplay/assembly/host.ts)\n\n"
+        f"```typescript\n{host_ts_content}\n```\n\n"
         f"## Output Instructions\n\n"
-        f"Write your game script as `game.py` in the working directory.\n"
-        f"Create DONE.txt when finished, or STUCK.txt if you cannot proceed.\n"
+        f"1. Write your AssemblyScript gameplay module under gameplay/assembly/.\n"
+        f"2. Compile it: cd gameplay && npx asc assembly/YOUR_FILE.ts "
+        f"--outFile build/YOUR_FILE.wasm --optimize --exportRuntime\n"
+        f"3. Write `game.py` in the working directory (setup + load WASM + run).\n"
+        f"4. Create DONE.txt when finished, or STUCK.txt if you cannot proceed.\n"
     )
 
     # Build command
@@ -318,6 +339,109 @@ def _parse_entity_count(stdout: str) -> int:
 
 
 # ---------------------------------------------------------------------------
+# Structural validation (Tier 1 — no LLM, fast, deterministic)
+# ---------------------------------------------------------------------------
+
+@dataclass
+class SnapshotValidation:
+    """Result of structural validation against GDD requirements."""
+
+    checks: dict[str, bool]
+    details: dict[str, str]
+
+    @property
+    def passed(self) -> bool:
+        return all(self.checks.values())
+
+    @property
+    def failures(self) -> list[str]:
+        return [name for name, ok in self.checks.items() if not ok]
+
+
+def validate_breakout_snapshot(snapshot: SceneSnapshot) -> SnapshotValidation:
+    """Validate a breakout game snapshot against GDD success criteria.
+
+    Checks are derived directly from eval_tasks/breakout.md:
+    - Correct entity types and roles
+    - Ball moved from starting position
+    - Ball is within game bounds (or close)
+    - At least some bricks were destroyed
+    - Walls exist with expected count
+    """
+    checks: dict[str, bool] = {}
+    details: dict[str, str] = {}
+
+    entities = snapshot.entities
+    roles: dict[str, list[SceneEntity]] = {}
+    for e in entities:
+        roles.setdefault(e.role, []).append(e)
+
+    # Check 1: Required entity types exist
+    has_paddle = len(roles.get("paddle", [])) == 1
+    checks["has_paddle"] = has_paddle
+    details["has_paddle"] = f"paddle count: {len(roles.get('paddle', []))}" + (" (expected 1)" if not has_paddle else "")
+
+    has_ball = len(roles.get("ball", [])) == 1
+    checks["has_ball"] = has_ball
+    details["has_ball"] = f"ball count: {len(roles.get('ball', []))}" + (" (expected 1)" if not has_ball else "")
+
+    brick_count = len(roles.get("brick", []))
+    has_bricks = brick_count > 0
+    checks["has_bricks"] = has_bricks
+    details["has_bricks"] = f"brick count: {brick_count}"
+
+    wall_roles = [r for r in roles if r.startswith("wall_")]
+    has_walls = len(wall_roles) >= 3
+    checks["has_walls"] = has_walls
+    details["has_walls"] = f"wall count: {len(wall_roles)} (expected >=3)"
+
+    # Check 2: Ball moved from starting position (400, 300)
+    if has_ball:
+        ball = roles["ball"][0]
+        if ball.position is not None:
+            bx, by = ball.position
+            ball_moved = abs(bx - 400.0) > 1.0 or abs(by - 300.0) > 1.0
+            checks["ball_moved"] = ball_moved
+            details["ball_moved"] = f"ball position: ({bx:.1f}, {by:.1f}), start was (400, 300)"
+        else:
+            checks["ball_moved"] = False
+            details["ball_moved"] = "ball has no position"
+    else:
+        checks["ball_moved"] = False
+        details["ball_moved"] = "no ball entity"
+
+    # Check 3: Ball is within game bounds (with margin for wall thickness)
+    GAME_W, GAME_H = 800.0, 600.0
+    MARGIN = 50.0  # generous margin for wall overshoot
+    if has_ball and roles["ball"][0].position is not None:
+        bx, by = roles["ball"][0].position
+        ball_in_bounds = (
+            -MARGIN <= bx <= GAME_W + MARGIN
+            and -MARGIN <= by <= GAME_H + MARGIN
+        )
+        checks["ball_in_bounds"] = ball_in_bounds
+        details["ball_in_bounds"] = (
+            f"ball at ({bx:.1f}, {by:.1f}), "
+            f"bounds: (0-{GAME_W}, 0-{GAME_H}), margin: {MARGIN}"
+        )
+    else:
+        checks["ball_in_bounds"] = False
+        details["ball_in_bounds"] = "no ball position to check"
+
+    # Check 4: Some bricks were destroyed (started with 20)
+    INITIAL_BRICKS = 20
+    bricks_destroyed = INITIAL_BRICKS - brick_count
+    some_destroyed = bricks_destroyed > 0
+    checks["bricks_destroyed"] = some_destroyed
+    details["bricks_destroyed"] = (
+        f"{bricks_destroyed}/{INITIAL_BRICKS} bricks destroyed"
+        + ("" if some_destroyed else " — ball may not be colliding with bricks")
+    )
+
+    return SnapshotValidation(checks=checks, details=details)
+
+
+# ---------------------------------------------------------------------------
 # score_game
 # ---------------------------------------------------------------------------
 
@@ -379,21 +503,66 @@ def score_game(run: AgentRun, *, project_root: Path | None = None, judge_model: 
             "llm_scores": None,
         }
 
-    # Second run — determinism check
+    # Second run — determinism check.
+    # Compare snapshot.json content (game state) rather than stdout text,
+    # since stdout may contain non-deterministic formatting (e.g. dict
+    # iteration order) that doesn't reflect actual game state differences.
+
+    # Capture run 1's snapshot before run 2 overwrites it.
+    snap_path = run._find_file("snapshot.json")
+    snap1_content: str | None = None
+    if snap_path is not None and snap_path.exists():
+        snap1_content = snap_path.read_text(encoding="utf-8")
+
     try:
         result2 = _run_game_script(run.game_script, project_root=root)
     except subprocess.TimeoutExpired:
         result2 = None
 
     if result2 is not None:
-        hash1 = hashlib.sha256(result1.stdout.encode()).hexdigest()
-        hash2 = hashlib.sha256(result2.stdout.encode()).hexdigest()
-        replay_deterministic = hash1 == hash2
+        if snap1_content is not None and snap_path is not None and snap_path.exists():
+            snap2_content = snap_path.read_text(encoding="utf-8")
+            try:
+                snap1_norm = json.dumps(json.loads(snap1_content), sort_keys=True)
+                snap2_norm = json.dumps(json.loads(snap2_content), sort_keys=True)
+                replay_deterministic = snap1_norm == snap2_norm
+            except (json.JSONDecodeError, ValueError):
+                hash1 = hashlib.sha256(result1.stdout.encode()).hexdigest()
+                hash2 = hashlib.sha256(result2.stdout.encode()).hexdigest()
+                replay_deterministic = hash1 == hash2
+        else:
+            hash1 = hashlib.sha256(result1.stdout.encode()).hexdigest()
+            hash2 = hashlib.sha256(result2.stdout.encode()).hexdigest()
+            replay_deterministic = hash1 == hash2
     else:
         replay_deterministic = False
 
     entity_count = _parse_entity_count(result1.stdout)
-    succeeded = result1.returncode == 0 and entity_count > 0
+
+    # --- Structural validation (Tier 1) ---
+    snapshot_found = run._find_file("snapshot.json")
+    snapshot_path = snapshot_found if snapshot_found is not None else run.workdir / "snapshot.json"
+
+    validation = None
+    snapshot: SceneSnapshot | None = None
+    if snapshot_path.exists():
+        try:
+            snap_data = json.loads(snapshot_path.read_text(encoding="utf-8"))
+            snapshot = SceneSnapshot.from_dict(snap_data)
+            validation = validate_breakout_snapshot(snapshot)
+            if not validation.passed:
+                logger.warning(
+                    "Snapshot validation failed: %s",
+                    ", ".join(validation.failures),
+                )
+        except Exception:
+            logger.exception("Snapshot validation error — falling back to basic check")
+
+    if validation is not None:
+        succeeded = validation.passed and entity_count > 0
+    else:
+        # Fallback: no snapshot available, use basic check
+        succeeded = result1.returncode == 0 and entity_count > 0
 
     task_result = TaskResult(
         task_id=run.config.task,
@@ -403,12 +572,9 @@ def score_game(run: AgentRun, *, project_root: Path | None = None, judge_model: 
 
     # --- LLM-judged deep scoring ---
     llm_scores = None
-    snapshot_found = run._find_file("snapshot.json")
-    snapshot_path = snapshot_found if snapshot_found is not None else run.workdir / "snapshot.json"
-    if snapshot_path.exists() and judge_model:
+    if snapshot is not None and judge_model:
+        assert snapshot is not None  # narrow type for pyright
         try:
-            snapshot_data = json.loads(snapshot_path.read_text(encoding="utf-8"))
-            snapshot = SceneSnapshot.from_dict(snapshot_data)
             llm = ClaudeCodeLLMClient(model=judge_model)
 
             # Scene QA (Tier 2)
@@ -433,14 +599,20 @@ def score_game(run: AgentRun, *, project_root: Path | None = None, judge_model: 
         except Exception:
             logger.exception("Deep scoring failed — continuing with basic score")
 
+    ground_truth: dict[str, object] = {
+        "entity_count": entity_count,
+        "replay_deterministic": replay_deterministic,
+        "stdout_hash": hashlib.sha256(result1.stdout.encode()).hexdigest(),
+    }
+    if validation is not None:
+        ground_truth["validation_passed"] = validation.passed
+        ground_truth["validation_checks"] = validation.checks
+        ground_truth["validation_details"] = validation.details
+
     return {
         "task_result": task_result,
         "eval_report": None,
-        "ground_truth": {
-            "entity_count": entity_count,
-            "replay_deterministic": replay_deterministic,
-            "stdout_hash": hashlib.sha256(result1.stdout.encode()).hexdigest(),
-        },
+        "ground_truth": ground_truth,
         "llm_scores": llm_scores,
     }
 
@@ -509,6 +681,15 @@ def run_agent_eval(
     print(f"  replay_deterministic: {task_result.replay_deterministic}")
     if "entity_count" in score["ground_truth"]:
         print(f"  entity_count: {score['ground_truth']['entity_count']}")
+
+    # Print structural validation results
+    gt = score["ground_truth"]
+    if "validation_checks" in gt:
+        print("\n  Structural validation:")
+        for check_name, passed in gt["validation_checks"].items():
+            status = "PASS" if passed else "FAIL"
+            detail = gt["validation_details"].get(check_name, "")
+            print(f"    [{status}] {check_name}: {detail}")
 
     # --- Build report ---
     report = {

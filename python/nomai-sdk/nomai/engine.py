@@ -223,6 +223,30 @@ class NomaiEngine:
         """Hot-swap the current WASM gameplay module."""
         self._engine.hot_swap_gameplay_wasm(wasm_bytes)
 
+    def call_wasm_export(self, name: str, *args: int) -> None:
+        """Call a named WASM export with optional i64 arguments.
+
+        This allows Python to invoke game-specific WASM handlers like
+        collision responses or input handlers directly, outside the
+        normal ``tick()`` cycle.
+
+        The export must have a matching void signature:
+        ``() -> ()``, ``(i64) -> ()``, or ``(i64, i64) -> ()``.
+
+        Fuel is NOT reset before this call -- it uses whatever fuel
+        remains from the last ``tick()`` or initial load.
+
+        Args:
+            name: Export function name (e.g. ``"on_collision"``,
+                ``"handleBrickHit"``).
+            *args: Up to 2 i64 arguments to pass to the export.
+
+        Raises:
+            RuntimeError: If no WASM module is loaded or the call traps.
+            ValueError: If more than 2 arguments are provided.
+        """
+        self._engine.call_wasm_export(name, *args)
+
     # -- Scene snapshot ------------------------------------------------------
 
     def scene_snapshot(self) -> SceneSnapshot:

@@ -18,11 +18,14 @@ from nomai.eval.agent_harness import (
     PROJECT_ROOT,
     AgentConfig,
     AgentRun,
+    SnapshotValidation,
     launch_agent,
     run_agent_eval,
     score_game,
+    validate_breakout_snapshot,
 )
 from nomai.eval.autonomy import TaskResult
+from nomai.scene import SceneEntity, SceneSnapshot
 
 
 # ---------------------------------------------------------------------------
@@ -613,3 +616,293 @@ class TestScoreGameDeepScoring:
         result = score_game(run, project_root=tmp_path, judge_model="sonnet")
         assert "llm_scores" in result
         assert result["llm_scores"] is None
+
+
+# ---------------------------------------------------------------------------
+# Structural validation (validate_breakout_snapshot)
+# ---------------------------------------------------------------------------
+
+def _make_entity(
+    entity_id: int,
+    entity_type: str,
+    role: str,
+    position: tuple[float, float] | None = None,
+    size: tuple[float, float] | None = None,
+    velocity: tuple[float, float] | None = None,
+) -> SceneEntity:
+    """Helper to create a SceneEntity for tests."""
+    return SceneEntity(
+        entity_id=entity_id,
+        entity_type=entity_type,
+        role=role,
+        tier="Semantic",
+        position=position,
+        size=size,
+        velocity=velocity,
+        visible=True,
+        z_index=0.0,
+    )
+
+
+def _make_good_breakout_snapshot() -> SceneSnapshot:
+    """A valid breakout snapshot where all checks should pass."""
+    entities = [
+        _make_entity(0, "character", "paddle", (400, 560), (100, 15)),
+        _make_entity(1, "projectile", "ball", (350, 200), (8, 8), (200, -300)),
+    ]
+    # 18 bricks (2 destroyed from initial 20)
+    for i in range(18):
+        entities.append(
+            _make_entity(2 + i, "destructible", "brick", (260 + (i % 5) * 70, 60 + (i // 5) * 30), (60, 20))
+        )
+    # 3 walls
+    entities.append(_make_entity(20, "boundary", "wall_top", (400, -10)))
+    entities.append(_make_entity(21, "boundary", "wall_left", (-10, 300)))
+    entities.append(_make_entity(22, "boundary", "wall_right", (810, 300)))
+
+    from nomai.scene import SceneBounds
+    return SceneSnapshot(
+        schema_version=1,
+        tick=301,
+        sim_time=5.0,
+        entities=entities,
+        bounds=SceneBounds(min_x=-10, min_y=-10, max_x=810, max_y=600),
+        entity_count=len(entities),
+    )
+
+
+class TestValidateBreakoutSnapshot:
+    """Tests for structural validation of breakout game snapshots."""
+
+    def test_good_snapshot_passes_all_checks(self) -> None:
+        """A correct breakout game snapshot should pass all validation checks."""
+        snap = _make_good_breakout_snapshot()
+        result = validate_breakout_snapshot(snap)
+        assert result.passed, f"Expected all checks to pass, failures: {result.failures}"
+        assert len(result.failures) == 0
+
+    def test_ball_out_of_bounds_fails(self) -> None:
+        """Ball at y=1471 (fell through bottom) should fail ball_in_bounds."""
+        snap = _make_good_breakout_snapshot()
+        # Replace ball with one that's way off screen
+        entities = [e for e in snap.entities if e.role != "ball"]
+        entities.append(_make_entity(1, "projectile", "ball", (530, 1471), (8, 8), (8, 291)))
+        snap = SceneSnapshot(
+            schema_version=snap.schema_version, tick=snap.tick,
+            sim_time=snap.sim_time, entities=entities,
+            bounds=snap.bounds, entity_count=len(entities),
+        )
+        result = validate_breakout_snapshot(snap)
+        assert not result.passed
+        assert "ball_in_bounds" in result.failures
+
+    def test_no_bricks_destroyed_fails(self) -> None:
+        """If all 20 bricks remain, bricks_destroyed check should fail."""
+        entities = [
+            _make_entity(0, "character", "paddle", (400, 560), (100, 15)),
+            _make_entity(1, "projectile", "ball", (350, 200), (8, 8), (200, -300)),
+        ]
+        for i in range(20):  # all 20 bricks still alive
+            entities.append(
+                _make_entity(2 + i, "destructible", "brick", (260 + (i % 5) * 70, 60 + (i // 5) * 30), (60, 20))
+            )
+        entities.append(_make_entity(22, "boundary", "wall_top", (400, -10)))
+        entities.append(_make_entity(23, "boundary", "wall_left", (-10, 300)))
+        entities.append(_make_entity(24, "boundary", "wall_right", (810, 300)))
+
+        from nomai.scene import SceneBounds
+        snap = SceneSnapshot(
+            schema_version=1, tick=301, sim_time=5.0, entities=entities,
+            bounds=SceneBounds(min_x=-10, min_y=-10, max_x=810, max_y=600),
+            entity_count=len(entities),
+        )
+        result = validate_breakout_snapshot(snap)
+        assert not result.passed
+        assert "bricks_destroyed" in result.failures
+
+    def test_missing_paddle_fails(self) -> None:
+        """No paddle entity should fail has_paddle check."""
+        snap = _make_good_breakout_snapshot()
+        entities = [e for e in snap.entities if e.role != "paddle"]
+        snap = SceneSnapshot(
+            schema_version=snap.schema_version, tick=snap.tick,
+            sim_time=snap.sim_time, entities=entities,
+            bounds=snap.bounds, entity_count=len(entities),
+        )
+        result = validate_breakout_snapshot(snap)
+        assert not result.passed
+        assert "has_paddle" in result.failures
+
+    def test_missing_ball_fails(self) -> None:
+        """No ball entity should fail has_ball and ball_moved checks."""
+        snap = _make_good_breakout_snapshot()
+        entities = [e for e in snap.entities if e.role != "ball"]
+        snap = SceneSnapshot(
+            schema_version=snap.schema_version, tick=snap.tick,
+            sim_time=snap.sim_time, entities=entities,
+            bounds=snap.bounds, entity_count=len(entities),
+        )
+        result = validate_breakout_snapshot(snap)
+        assert not result.passed
+        assert "has_ball" in result.failures
+
+    def test_ball_at_starting_position_fails(self) -> None:
+        """Ball still at (400, 300) should fail ball_moved check."""
+        snap = _make_good_breakout_snapshot()
+        entities = [e for e in snap.entities if e.role != "ball"]
+        entities.append(_make_entity(1, "projectile", "ball", (400, 300), (8, 8)))
+        snap = SceneSnapshot(
+            schema_version=snap.schema_version, tick=snap.tick,
+            sim_time=snap.sim_time, entities=entities,
+            bounds=snap.bounds, entity_count=len(entities),
+        )
+        result = validate_breakout_snapshot(snap)
+        assert not result.passed
+        assert "ball_moved" in result.failures
+
+    def test_missing_walls_fails(self) -> None:
+        """Fewer than 3 walls should fail has_walls check."""
+        snap = _make_good_breakout_snapshot()
+        entities = [e for e in snap.entities if not e.role.startswith("wall_")]
+        # Only add 1 wall
+        entities.append(_make_entity(20, "boundary", "wall_top", (400, -10)))
+        snap = SceneSnapshot(
+            schema_version=snap.schema_version, tick=snap.tick,
+            sim_time=snap.sim_time, entities=entities,
+            bounds=snap.bounds, entity_count=len(entities),
+        )
+        result = validate_breakout_snapshot(snap)
+        assert not result.passed
+        assert "has_walls" in result.failures
+
+    def test_haiku_broken_game_fails(self) -> None:
+        """Reproduce exact Haiku game state — ball at (530, 1471), only 1 brick destroyed.
+
+        This is the real scenario that exposed the eval gap: the game looked
+        completely broken visually but the old eval said PASS.
+        """
+        entities = [
+            _make_entity(0, "character", "paddle", (400, 560), (100, 15)),
+            _make_entity(1, "projectile", "ball", (530.3, 1471.1), (8, 8), (8.0, 291.4)),
+        ]
+        # 19 bricks remaining (1 destroyed from 20)
+        for i in range(19):
+            entities.append(
+                _make_entity(2 + i, "destructible", "brick", (260 + (i % 5) * 70, 60 + (i // 5) * 30), (60, 20))
+            )
+        entities.append(_make_entity(22, "boundary", "wall_top", (400, -10)))
+        entities.append(_make_entity(23, "boundary", "wall_left", (-10, 300)))
+        entities.append(_make_entity(24, "boundary", "wall_right", (810, 300)))
+
+        from nomai.scene import SceneBounds
+        snap = SceneSnapshot(
+            schema_version=1, tick=301, sim_time=5.0, entities=entities,
+            bounds=SceneBounds(min_x=-10, min_y=-10, max_x=810, max_y=1475),
+            entity_count=len(entities),
+        )
+        result = validate_breakout_snapshot(snap)
+        assert not result.passed
+        assert "ball_in_bounds" in result.failures
+        # Ball moved (it's far from 400,300) so that should pass
+        assert result.checks["ball_moved"] is True
+        # Has entities — those pass
+        assert result.checks["has_paddle"] is True
+        assert result.checks["has_ball"] is True
+        assert result.checks["has_walls"] is True
+
+
+class TestScoreGameWithValidation:
+    """Tests that score_game uses structural validation when snapshot exists."""
+
+    def _make_run(self, workdir: Path, exit_code: int = 0) -> AgentRun:
+        return AgentRun(
+            config=AgentConfig(task="breakout"),
+            workdir=workdir, exit_code=exit_code,
+            wall_time_s=10.0, stdout="ENTITY_COUNT: 24", stderr="",
+        )
+
+    @patch("nomai.eval.agent_harness._run_game_script")
+    def test_broken_snapshot_fails_score(self, mock_run_script: MagicMock, tmp_path: Path) -> None:
+        """score_game should FAIL when snapshot shows ball out of bounds."""
+        (tmp_path / "game.py").write_text("print('ENTITY_COUNT: 24')")
+
+        # Write the broken Haiku snapshot
+        broken_snapshot = {
+            "schema_version": 1, "tick": 301, "sim_time": 5.0,
+            "entities": [
+                {"entity_id": 0, "entity_type": "character", "role": "paddle",
+                 "tier": "Semantic", "position": [400, 560], "size": [100, 15],
+                 "velocity": None, "visible": True, "z_index": 0, "components": {}},
+                {"entity_id": 1, "entity_type": "projectile", "role": "ball",
+                 "tier": "Semantic", "position": [530, 1471], "size": [8, 8],
+                 "velocity": [8, 291], "visible": True, "z_index": 0, "components": {}},
+            ] + [
+                {"entity_id": 2 + i, "entity_type": "destructible", "role": "brick",
+                 "tier": "Semantic", "position": [260 + (i % 5) * 70, 60 + (i // 5) * 30],
+                 "size": [60, 20], "velocity": None, "visible": True, "z_index": 0, "components": {}}
+                for i in range(19)
+            ] + [
+                {"entity_id": 22, "entity_type": "boundary", "role": "wall_top",
+                 "tier": "Semantic", "position": [400, -10], "size": None,
+                 "velocity": None, "visible": True, "z_index": 0, "components": {}},
+                {"entity_id": 23, "entity_type": "boundary", "role": "wall_left",
+                 "tier": "Semantic", "position": [-10, 300], "size": None,
+                 "velocity": None, "visible": True, "z_index": 0, "components": {}},
+                {"entity_id": 24, "entity_type": "boundary", "role": "wall_right",
+                 "tier": "Semantic", "position": [810, 300], "size": None,
+                 "velocity": None, "visible": True, "z_index": 0, "components": {}},
+            ],
+            "bounds": {"min_x": -10, "min_y": -10, "max_x": 810, "max_y": 1475},
+            "entity_count": 24,
+        }
+        (tmp_path / "snapshot.json").write_text(json.dumps(broken_snapshot))
+
+        mock_run_script.return_value = MagicMock(returncode=0, stdout="ENTITY_COUNT: 24", stderr="")
+        run = self._make_run(tmp_path)
+        result = score_game(run, project_root=tmp_path)
+
+        assert result["task_result"].succeeded is False
+        assert result["ground_truth"]["validation_passed"] is False
+        assert result["ground_truth"]["validation_checks"]["ball_in_bounds"] is False
+
+    @patch("nomai.eval.agent_harness._run_game_script")
+    def test_good_snapshot_passes_score(self, mock_run_script: MagicMock, tmp_path: Path) -> None:
+        """score_game should PASS when snapshot shows a healthy game state."""
+        (tmp_path / "game.py").write_text("print('ENTITY_COUNT: 22')")
+
+        good_snapshot = {
+            "schema_version": 1, "tick": 301, "sim_time": 5.0,
+            "entities": [
+                {"entity_id": 0, "entity_type": "character", "role": "paddle",
+                 "tier": "Semantic", "position": [400, 560], "size": [100, 15],
+                 "velocity": None, "visible": True, "z_index": 0, "components": {}},
+                {"entity_id": 1, "entity_type": "projectile", "role": "ball",
+                 "tier": "Semantic", "position": [350, 200], "size": [8, 8],
+                 "velocity": [200, -300], "visible": True, "z_index": 0, "components": {}},
+            ] + [
+                {"entity_id": 2 + i, "entity_type": "destructible", "role": "brick",
+                 "tier": "Semantic", "position": [260 + (i % 5) * 70, 60 + (i // 5) * 30],
+                 "size": [60, 20], "velocity": None, "visible": True, "z_index": 0, "components": {}}
+                for i in range(16)  # 4 destroyed
+            ] + [
+                {"entity_id": 20, "entity_type": "boundary", "role": "wall_top",
+                 "tier": "Semantic", "position": [400, -10], "size": None,
+                 "velocity": None, "visible": True, "z_index": 0, "components": {}},
+                {"entity_id": 21, "entity_type": "boundary", "role": "wall_left",
+                 "tier": "Semantic", "position": [-10, 300], "size": None,
+                 "velocity": None, "visible": True, "z_index": 0, "components": {}},
+                {"entity_id": 22, "entity_type": "boundary", "role": "wall_right",
+                 "tier": "Semantic", "position": [810, 300], "size": None,
+                 "velocity": None, "visible": True, "z_index": 0, "components": {}},
+            ],
+            "bounds": {"min_x": -10, "min_y": -10, "max_x": 810, "max_y": 600},
+            "entity_count": 21,
+        }
+        (tmp_path / "snapshot.json").write_text(json.dumps(good_snapshot))
+
+        mock_run_script.return_value = MagicMock(returncode=0, stdout="ENTITY_COUNT: 22", stderr="")
+        run = self._make_run(tmp_path)
+        result = score_game(run, project_root=tmp_path)
+
+        assert result["task_result"].succeeded is True
+        assert result["ground_truth"]["validation_passed"] is True

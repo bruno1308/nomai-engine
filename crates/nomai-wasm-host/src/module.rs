@@ -258,6 +258,65 @@ impl WasmModule {
         Ok(result)
     }
 
+    /// Call a named export that takes one `i64` argument and returns nothing.
+    ///
+    /// This enables calling WASM handlers that accept an entity ID, such as
+    /// `handleBrickHit(entityId: i64)`. Fuel is NOT reset before this call
+    /// -- it uses whatever fuel remains from the last `call_tick()` or
+    /// initial load.
+    ///
+    /// # Errors
+    ///
+    /// - [`WasmError::Runtime`] if the export does not exist or has wrong signature.
+    /// - [`WasmError::Trap`] or [`WasmError::OutOfFuel`] on execution failure.
+    pub fn call_void_with_i64(&mut self, name: &str, param: i64) -> Result<(), WasmError> {
+        let func = self
+            .instance
+            .get_typed_func::<(i64,), ()>(&mut self.store, name)
+            .map_err(|e| WasmError::Runtime(format!("failed to resolve export '{name}': {e}")))?;
+
+        func.call(&mut self.store, (param,))
+            .map_err(|e| self.classify_trap(e))?;
+
+        Ok(())
+    }
+
+    /// Call a named export that takes two `i64` arguments and returns nothing.
+    ///
+    /// This enables calling collision handlers like
+    /// `on_collision(entityA: i64, entityB: i64)`. Fuel is NOT reset before
+    /// this call -- it uses whatever fuel remains from the last `call_tick()`
+    /// or initial load.
+    ///
+    /// # Errors
+    ///
+    /// - [`WasmError::Runtime`] if the export does not exist or has wrong signature.
+    /// - [`WasmError::Trap`] or [`WasmError::OutOfFuel`] on execution failure.
+    pub fn call_void_with_i64_i64(
+        &mut self,
+        name: &str,
+        p1: i64,
+        p2: i64,
+    ) -> Result<(), WasmError> {
+        let func = self
+            .instance
+            .get_typed_func::<(i64, i64), ()>(&mut self.store, name)
+            .map_err(|e| WasmError::Runtime(format!("failed to resolve export '{name}': {e}")))?;
+
+        func.call(&mut self.store, (p1, p2))
+            .map_err(|e| self.classify_trap(e))?;
+
+        Ok(())
+    }
+
+    /// Check whether the module exports a function with the given name.
+    ///
+    /// This is useful for the tick loop to check whether optional exports
+    /// like `on_collision` exist before attempting to call them.
+    pub fn has_export(&mut self, name: &str) -> bool {
+        self.instance.get_func(&mut self.store, name).is_some()
+    }
+
     /// Returns the amount of fuel remaining in the store.
     pub fn fuel_remaining(&self) -> u64 {
         self.store.get_fuel().unwrap_or(0)

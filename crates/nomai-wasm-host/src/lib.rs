@@ -602,6 +602,275 @@ mod hardening_tests {
 }
 
 // ---------------------------------------------------------------------------
+// Parameterized Export Calling Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod parameterized_export_tests {
+    use super::*;
+
+    /// Helper: load a WAT fixture file from the tests/fixtures directory.
+    fn fixture_bytes(name: &str) -> Vec<u8> {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests")
+            .join("fixtures")
+            .join(name);
+        std::fs::read(&path)
+            .unwrap_or_else(|e| panic!("failed to read fixture {}: {}", path.display(), e))
+    }
+
+    // -- has_export tests ------------------------------------------------------
+
+    #[test]
+    fn has_export_returns_true_for_existing_export() {
+        let config = WasmConfig::default();
+        let bytes = fixture_bytes("counter.wat");
+        let mut module = WasmModule::from_bytes(&config, &bytes).unwrap();
+
+        assert!(module.has_export("tick"), "tick should exist");
+        assert!(module.has_export("get_count"), "get_count should exist");
+    }
+
+    #[test]
+    fn has_export_returns_false_for_missing_export() {
+        let config = WasmConfig::default();
+        let bytes = fixture_bytes("noop.wat");
+        let mut module = WasmModule::from_bytes(&config, &bytes).unwrap();
+
+        assert!(
+            !module.has_export("on_collision"),
+            "on_collision should not exist in noop module"
+        );
+        assert!(
+            !module.has_export("nonexistent"),
+            "nonexistent should not exist"
+        );
+    }
+
+    #[test]
+    fn has_export_finds_optional_handler() {
+        let config = WasmConfig::default();
+        let bytes = fixture_bytes("void_i64_i64.wat");
+        let mut module = WasmModule::from_bytes(&config, &bytes).unwrap();
+
+        assert!(
+            module.has_export("on_collision"),
+            "on_collision should exist in the collision fixture"
+        );
+        assert!(module.has_export("tick"), "tick should always exist");
+    }
+
+    // -- call_void_with_i64 tests ----------------------------------------------
+
+    #[test]
+    fn call_void_with_i64_passes_parameter() {
+        let config = WasmConfig::default();
+        let bytes = fixture_bytes("void_i64.wat");
+        let mut module = WasmModule::from_bytes(&config, &bytes).unwrap();
+
+        // Reset fuel so we have budget for the calls.
+        module.call_tick().unwrap();
+
+        // Call handle_hit with entity id 42.
+        module.call_void_with_i64("handle_hit", 42).unwrap();
+
+        // Verify the parameter was received.
+        let result = module.call_i64_export("get_last_param").unwrap();
+        assert_eq!(result, 42, "handle_hit should receive entity id 42");
+    }
+
+    #[test]
+    fn call_void_with_i64_handles_large_values() {
+        let config = WasmConfig::default();
+        let bytes = fixture_bytes("void_i64.wat");
+        let mut module = WasmModule::from_bytes(&config, &bytes).unwrap();
+
+        module.call_tick().unwrap();
+
+        let large_id: i64 = 0x7FFF_FFFF_FFFF_FFFF; // i64 max
+        module.call_void_with_i64("handle_hit", large_id).unwrap();
+
+        let result = module.call_i64_export("get_last_param").unwrap();
+        assert_eq!(result, large_id, "should handle i64 max value");
+    }
+
+    #[test]
+    fn call_void_with_i64_missing_export_returns_error() {
+        let config = WasmConfig::default();
+        let bytes = fixture_bytes("noop.wat");
+        let mut module = WasmModule::from_bytes(&config, &bytes).unwrap();
+
+        module.call_tick().unwrap();
+
+        let result = module.call_void_with_i64("nonexistent", 1);
+        assert!(result.is_err(), "calling missing export should fail");
+        assert!(
+            matches!(result.unwrap_err(), WasmError::Runtime(_)),
+            "should be a Runtime error"
+        );
+    }
+
+    #[test]
+    fn call_void_with_i64_does_not_affect_consecutive_traps() {
+        let config = WasmConfig::default();
+        let bytes = fixture_bytes("void_i64.wat");
+        let mut module = WasmModule::from_bytes(&config, &bytes).unwrap();
+
+        module.call_tick().unwrap();
+        assert_eq!(module.consecutive_traps(), 0);
+
+        module.call_void_with_i64("handle_hit", 1).unwrap();
+        assert_eq!(
+            module.consecutive_traps(),
+            0,
+            "call_void_with_i64 should not change consecutive_traps"
+        );
+    }
+
+    #[test]
+    fn call_void_with_i64_uses_remaining_fuel() {
+        let config = WasmConfig::default();
+        let bytes = fixture_bytes("void_i64.wat");
+        let mut module = WasmModule::from_bytes(&config, &bytes).unwrap();
+
+        module.call_tick().unwrap();
+        let fuel_before = module.fuel_remaining();
+
+        module.call_void_with_i64("handle_hit", 99).unwrap();
+        let fuel_after = module.fuel_remaining();
+
+        assert!(
+            fuel_after < fuel_before,
+            "call_void_with_i64 should consume fuel ({fuel_before} -> {fuel_after})"
+        );
+    }
+
+    // -- call_void_with_i64_i64 tests ------------------------------------------
+
+    #[test]
+    fn call_void_with_i64_i64_passes_both_parameters() {
+        let config = WasmConfig::default();
+        let bytes = fixture_bytes("void_i64_i64.wat");
+        let mut module = WasmModule::from_bytes(&config, &bytes).unwrap();
+
+        module.call_tick().unwrap();
+
+        // Call on_collision with two entity IDs.
+        module.call_void_with_i64_i64("on_collision", 10, 20).unwrap();
+
+        let p1 = module.call_i64_export("get_last_p1").unwrap();
+        let p2 = module.call_i64_export("get_last_p2").unwrap();
+        assert_eq!(p1, 10, "first parameter should be 10");
+        assert_eq!(p2, 20, "second parameter should be 20");
+    }
+
+    #[test]
+    fn call_void_with_i64_i64_handles_zero_values() {
+        let config = WasmConfig::default();
+        let bytes = fixture_bytes("void_i64_i64.wat");
+        let mut module = WasmModule::from_bytes(&config, &bytes).unwrap();
+
+        module.call_tick().unwrap();
+
+        module.call_void_with_i64_i64("on_collision", 0, 0).unwrap();
+
+        let p1 = module.call_i64_export("get_last_p1").unwrap();
+        let p2 = module.call_i64_export("get_last_p2").unwrap();
+        assert_eq!(p1, 0, "should handle zero for first param");
+        assert_eq!(p2, 0, "should handle zero for second param");
+    }
+
+    #[test]
+    fn call_void_with_i64_i64_missing_export_returns_error() {
+        let config = WasmConfig::default();
+        let bytes = fixture_bytes("noop.wat");
+        let mut module = WasmModule::from_bytes(&config, &bytes).unwrap();
+
+        module.call_tick().unwrap();
+
+        let result = module.call_void_with_i64_i64("on_collision", 1, 2);
+        assert!(result.is_err(), "calling missing export should fail");
+        assert!(
+            matches!(result.unwrap_err(), WasmError::Runtime(_)),
+            "should be a Runtime error"
+        );
+    }
+
+    #[test]
+    fn call_void_with_i64_i64_does_not_affect_consecutive_traps() {
+        let config = WasmConfig::default();
+        let bytes = fixture_bytes("void_i64_i64.wat");
+        let mut module = WasmModule::from_bytes(&config, &bytes).unwrap();
+
+        module.call_tick().unwrap();
+        assert_eq!(module.consecutive_traps(), 0);
+
+        module.call_void_with_i64_i64("on_collision", 1, 2).unwrap();
+        assert_eq!(
+            module.consecutive_traps(),
+            0,
+            "call_void_with_i64_i64 should not change consecutive_traps"
+        );
+    }
+
+    #[test]
+    fn call_void_with_i64_i64_uses_remaining_fuel() {
+        let config = WasmConfig::default();
+        let bytes = fixture_bytes("void_i64_i64.wat");
+        let mut module = WasmModule::from_bytes(&config, &bytes).unwrap();
+
+        module.call_tick().unwrap();
+        let fuel_before = module.fuel_remaining();
+
+        module.call_void_with_i64_i64("on_collision", 5, 10).unwrap();
+        let fuel_after = module.fuel_remaining();
+
+        assert!(
+            fuel_after < fuel_before,
+            "call_void_with_i64_i64 should consume fuel ({fuel_before} -> {fuel_after})"
+        );
+    }
+
+    // -- Combined workflow tests -----------------------------------------------
+
+    #[test]
+    fn has_export_then_call_pattern() {
+        let config = WasmConfig::default();
+        let bytes = fixture_bytes("void_i64_i64.wat");
+        let mut module = WasmModule::from_bytes(&config, &bytes).unwrap();
+
+        module.call_tick().unwrap();
+
+        // This is the pattern the tick loop will use: check first, call if present.
+        if module.has_export("on_collision") {
+            module.call_void_with_i64_i64("on_collision", 100, 200).unwrap();
+        }
+
+        let p1 = module.call_i64_export("get_last_p1").unwrap();
+        let p2 = module.call_i64_export("get_last_p2").unwrap();
+        assert_eq!(p1, 100);
+        assert_eq!(p2, 200);
+    }
+
+    #[test]
+    fn skip_call_when_export_missing() {
+        let config = WasmConfig::default();
+        let bytes = fixture_bytes("noop.wat");
+        let mut module = WasmModule::from_bytes(&config, &bytes).unwrap();
+
+        module.call_tick().unwrap();
+
+        // The tick loop should skip the call when the export does not exist.
+        let mut called = false;
+        if module.has_export("on_collision") {
+            module.call_void_with_i64_i64("on_collision", 1, 2).unwrap();
+            called = true;
+        }
+        assert!(!called, "should not call on_collision when it does not exist");
+    }
+}
+
+// ---------------------------------------------------------------------------
 // B2 Tests -- Host API
 // ---------------------------------------------------------------------------
 

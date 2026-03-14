@@ -10,7 +10,8 @@
 //!    the simulation, record collision events, and emit position/velocity
 //!    update commands.
 //! 4. **Run WASM gameplay** -- if a WASM module is attached, call its
-//!    `tick()` export, drain commands and events. On trap, commands/events
+//!    `tick()` export, route physics collision pairs via `on_collision`
+//!    (if exported), drain commands and events. On trap, commands/events
 //!    are discarded to prevent leakage.
 //! 5. **Apply commands** -- the command buffer is applied to the world
 //!    (deterministic FIFO order).
@@ -54,6 +55,8 @@ use std::time::{Duration, Instant};
 use nomai_ecs::command::CommandBuffer;
 use nomai_ecs::world::World;
 use nomai_manifest::manifest::{ManifestPipeline, TickManifest};
+
+use crate::physics::CollisionPair;
 
 // ---------------------------------------------------------------------------
 // TickConfig
@@ -323,8 +326,9 @@ impl TickLoop {
     ///    rapier2d simulation, record collision events, and emit position/velocity
     ///    update commands.
     /// 4. **Run WASM gameplay** -- if a WASM module is attached, prepare the
-    ///    host state with a world snapshot, call `tick()`, drain commands and
-    ///    events, and merge WASM commands into the main command buffer.
+    ///    host state with a world snapshot, call `tick()`, route physics
+    ///    collision pairs via `on_collision` (if exported), drain commands
+    ///    and events, and merge WASM commands into the main command buffer.
     /// 5. **Apply commands** -- the command buffer is applied to the world
     ///    (deterministic FIFO order).
     /// 6. **Process commands into manifest** -- spawns, despawns, and component
@@ -353,6 +357,8 @@ impl TickLoop {
         }
 
         // Phase 3: Run physics step (if physics world is attached).
+        // Collisions are hoisted so Phase 4 can route them to WASM.
+        let mut tick_collisions: Vec<CollisionPair> = Vec::new();
         if let Some(ref mut physics) = self.physics {
             let physics_start = Instant::now();
             let (collisions, events) = crate::physics::run_physics_step(
@@ -375,6 +381,9 @@ impl TickLoop {
                     "physics collisions detected"
                 );
             }
+
+            // Hoist collisions for Phase 4 WASM routing.
+            tick_collisions = collisions;
 
             system_times.push((
                 crate::physics::PHYSICS_SYSTEM_NAME.to_owned(),
@@ -415,11 +424,40 @@ impl TickLoop {
                 }
             };
 
+            // Route physics collision pairs to WASM before draining, so that
+            // on_collision handlers can queue commands alongside tick() commands.
+            if wasm_succeeded && !tick_collisions.is_empty() {
+                let has_on_collision = wasm.has_export("on_collision");
+                if has_on_collision {
+                    for pair in &tick_collisions {
+                        if let Err(e) = wasm.call_void_with_i64_i64(
+                            "on_collision",
+                            pair.entity_a.to_raw() as i64,
+                            pair.entity_b.to_raw() as i64,
+                        ) {
+                            tracing::warn!(
+                                tick = self.tick_counter,
+                                entity_a = ?pair.entity_a,
+                                entity_b = ?pair.entity_b,
+                                error = %e,
+                                "WASM on_collision handler failed -- skipping"
+                            );
+                        }
+                    }
+                    tracing::trace!(
+                        tick = self.tick_counter,
+                        collision_count = tick_collisions.len(),
+                        "routed collision pairs to WASM on_collision"
+                    );
+                }
+            }
+
             // On success, drain WASM commands and events into the main pipeline.
             // On trap, drain and DISCARD to prevent leakage to the next tick
             // (HostState::begin_tick does not clear queued commands/events).
             if wasm_succeeded {
                 // Drain commands from WASM and merge into the main buffer.
+                // This includes commands from both tick() and on_collision().
                 let wasm_cmd_buf = wasm.drain_commands();
                 for cmd in wasm_cmd_buf.commands() {
                     self.command_buffer.push_raw(cmd.clone());

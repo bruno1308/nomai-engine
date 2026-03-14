@@ -15,7 +15,7 @@ use nomai_engine::tick::{InputFrame, TickConfig, TickLoop};
 use nomai_manifest::manifest::TickManifest;
 use nomai_wasm_host::{WasmConfig, WasmModule};
 use pyo3::prelude::*;
-use pyo3::types::PyDict;
+use pyo3::types::{PyDict, PyTuple};
 
 /// Converts a [`TickManifest`] to a Python dict via JSON round-trip.
 ///
@@ -285,6 +285,74 @@ impl PyNomaiEngine {
             None => Err(pyo3::exceptions::PyRuntimeError::new_err(
                 "no WASM module loaded -- call load_gameplay_wasm() first",
             )),
+        }
+    }
+
+    /// Call a named WASM export with optional i64 arguments.
+    ///
+    /// Invokes an arbitrary exported function from the loaded WASM module.
+    /// Supports 0, 1, or 2 `i64` parameters. The export must have the
+    /// matching signature (`() -> ()`, `(i64) -> ()`, or `(i64, i64) -> ()`).
+    ///
+    /// This allows Python to invoke game-specific WASM handlers like
+    /// collision responses or input handlers directly, outside the normal
+    /// `tick()` cycle.
+    ///
+    /// Fuel is NOT reset before this call -- it uses whatever fuel remains
+    /// from the last `tick()` or initial load.
+    ///
+    /// Args:
+    ///     name: Export function name (e.g. "on_collision", "handleBrickHit").
+    ///     *args: Up to 2 i64 arguments to pass to the export.
+    ///
+    /// Raises:
+    ///     RuntimeError: If no WASM module is loaded or the call traps.
+    ///     ValueError: If more than 2 arguments are provided.
+    #[pyo3(signature = (name, *args))]
+    fn call_wasm_export(&mut self, name: &str, args: &Bound<'_, PyTuple>) -> PyResult<()> {
+        let wasm = self.wasm_module.as_mut().ok_or_else(|| {
+            pyo3::exceptions::PyRuntimeError::new_err("no WASM module loaded")
+        })?;
+
+        match args.len() {
+            0 => {
+                let inst = *wasm.instance();
+                let func = inst
+                    .get_typed_func::<(), ()>(wasm.store_mut(), name)
+                    .map_err(|e| {
+                        pyo3::exceptions::PyRuntimeError::new_err(format!(
+                            "failed to resolve WASM export '{name}': {e}"
+                        ))
+                    })?;
+                func.call(wasm.store_mut(), ()).map_err(|e| {
+                    pyo3::exceptions::PyRuntimeError::new_err(format!(
+                        "WASM export '{name}' trapped: {e}"
+                    ))
+                })?;
+                Ok(())
+            }
+            1 => {
+                let arg0: i64 = args.get_item(0)?.extract::<i64>()?;
+                wasm.call_void_with_i64(name, arg0).map_err(|e| {
+                    pyo3::exceptions::PyRuntimeError::new_err(format!(
+                        "WASM export '{name}' failed: {e}"
+                    ))
+                })?;
+                Ok(())
+            }
+            2 => {
+                let arg0: i64 = args.get_item(0)?.extract::<i64>()?;
+                let arg1: i64 = args.get_item(1)?.extract::<i64>()?;
+                wasm.call_void_with_i64_i64(name, arg0, arg1).map_err(|e| {
+                    pyo3::exceptions::PyRuntimeError::new_err(format!(
+                        "WASM export '{name}' failed: {e}"
+                    ))
+                })?;
+                Ok(())
+            }
+            n => Err(pyo3::exceptions::PyValueError::new_err(format!(
+                "call_wasm_export supports 0-2 i64 arguments, got {n}"
+            ))),
         }
     }
 
