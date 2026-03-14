@@ -41,10 +41,14 @@ PROJECT_ROOT: Path = Path(__file__).resolve().parents[4]
 AGENT_SYSTEM_PROMPT: str = """\
 You are an expert game developer using the Nomai engine.
 
+CRITICAL: You MUST write ALL files to your current working directory. Do NOT \
+use `cd` to navigate elsewhere. Do NOT write files to parent directories or \
+any absolute path. Use only relative paths like `game.py`, `snapshot.json`, etc.
+
 Your task:
 1. Read the Game Design Document (GDD) provided in the prompt.
 2. Read the SDK reference provided in the prompt.
-3. Write a Python script called game.py that implements the game.
+3. Write a Python script called `game.py` in the current directory.
 4. Run the script to verify it works.
 5. Use snapshot.summary() to inspect the game state visually.
 6. Fix any issues you find by iterating on the script.
@@ -62,7 +66,7 @@ Important notes:
 - Register all components before spawning entities.
 - Call init_physics() before creating any physics bodies.
 - Tick once after spawning entities to apply the spawns before registering physics bodies.
-- The output script must be saved as game.py in your working directory.
+- ALL output files (game.py, snapshot.json, DONE.txt) MUST be in the current directory.
 """
 
 
@@ -109,15 +113,35 @@ class AgentRun:
     stdout: str
     stderr: str
 
+    def _find_file(self, name: str) -> Path | None:
+        """Search for *name* in workdir, then parent (eval_workdir/).
+
+        The agent occasionally writes files to the parent directory instead
+        of the timestamped workdir.  This fallback prevents false negatives.
+        """
+        candidate = self.workdir / name
+        if candidate.exists():
+            return candidate
+        parent_candidate = self.workdir.parent / name
+        if parent_candidate.exists():
+            logger.warning(
+                "File %s found in parent dir %s instead of workdir %s — "
+                "agent likely navigated away from cwd",
+                name, parent_candidate, self.workdir,
+            )
+            return parent_candidate
+        return None
+
     @property
     def game_script(self) -> Path:
         """Path to the agent's output game script."""
-        return self.workdir / "game.py"
+        found = self._find_file("game.py")
+        return found if found is not None else self.workdir / "game.py"
 
     @property
     def game_exists(self) -> bool:
         """Whether the agent produced a game.py file."""
-        return self.game_script.exists()
+        return self._find_file("game.py") is not None
 
     @property
     def signal(self) -> str:
@@ -127,9 +151,9 @@ class AgentRun:
             ``"DONE"`` if DONE.txt exists, ``"STUCK"`` if STUCK.txt exists,
             ``"TIMEOUT"`` if the exit code is non-zero, else ``"UNKNOWN"``.
         """
-        if (self.workdir / "DONE.txt").exists():
+        if self._find_file("DONE.txt") is not None:
             return "DONE"
-        if (self.workdir / "STUCK.txt").exists():
+        if self._find_file("STUCK.txt") is not None:
             return "STUCK"
         if self.exit_code != 0:
             return "TIMEOUT"
@@ -379,7 +403,8 @@ def score_game(run: AgentRun, *, project_root: Path | None = None, judge_model: 
 
     # --- LLM-judged deep scoring ---
     llm_scores = None
-    snapshot_path = run.workdir / "snapshot.json"
+    snapshot_found = run._find_file("snapshot.json")
+    snapshot_path = snapshot_found if snapshot_found is not None else run.workdir / "snapshot.json"
     if snapshot_path.exists() and judge_model:
         try:
             snapshot_data = json.loads(snapshot_path.read_text(encoding="utf-8"))

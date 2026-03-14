@@ -1,6 +1,6 @@
 {
-  "timestamp": "2026-03-12T04:19:36.768580+00:00",
-  "engine_version": "b1ce98b4d1a7",
+  "timestamp": "2026-03-14T16:39:28.448413+00:00",
+  "engine_version": "a756c0eac47a",
   "dimensions": {
     "observability": {
       "dimension": "observability",
@@ -60,6 +60,62 @@
           "target": 0.95,
           "passed": true,
           "detail": "Entity F1=1.000 (precision=1.000, recall=1.000). Snapshot has 24 entities, ground truth has 24 alive."
+        },
+        {
+          "name": "scene_qa_accuracy",
+          "dimension": "observability",
+          "value": 1.0,
+          "target": 0.8,
+          "passed": true,
+          "detail": "319/319 questions answered correctly."
+        },
+        {
+          "name": "action_prediction_accuracy",
+          "dimension": "observability",
+          "value": 1.0,
+          "target": 0.7,
+          "passed": true,
+          "detail": "1/1 cases predicted correctly."
+        },
+        {
+          "name": "geval_completeness",
+          "dimension": "observability",
+          "value": 0.75,
+          "target": null,
+          "passed": true,
+          "detail": "G-Eval completeness: raw=4, normalized=0.75"
+        },
+        {
+          "name": "geval_clarity",
+          "dimension": "observability",
+          "value": 0.75,
+          "target": null,
+          "passed": true,
+          "detail": "G-Eval clarity: raw=4, normalized=0.75"
+        },
+        {
+          "name": "geval_spatial_accuracy",
+          "dimension": "observability",
+          "value": 0.75,
+          "target": null,
+          "passed": true,
+          "detail": "G-Eval spatial_accuracy: raw=4, normalized=0.75"
+        },
+        {
+          "name": "geval_actionability",
+          "dimension": "observability",
+          "value": 0.75,
+          "target": null,
+          "passed": true,
+          "detail": "G-Eval actionability: raw=4, normalized=0.75"
+        },
+        {
+          "name": "multihop_spatial_accuracy",
+          "dimension": "observability",
+          "value": 1.0,
+          "target": null,
+          "passed": true,
+          "detail": "1999/1999 spatial questions answered correctly."
         }
       ],
       "score": 1.0,
@@ -249,6 +305,62 @@
       "detail": "Entity F1=1.000 (precision=1.000, recall=1.000). Snapshot has 24 entities, ground truth has 24 alive."
     },
     {
+      "name": "scene_qa_accuracy",
+      "dimension": "observability",
+      "value": 1.0,
+      "target": 0.8,
+      "passed": true,
+      "detail": "319/319 questions answered correctly."
+    },
+    {
+      "name": "action_prediction_accuracy",
+      "dimension": "observability",
+      "value": 1.0,
+      "target": 0.7,
+      "passed": true,
+      "detail": "1/1 cases predicted correctly."
+    },
+    {
+      "name": "geval_completeness",
+      "dimension": "observability",
+      "value": 0.75,
+      "target": null,
+      "passed": true,
+      "detail": "G-Eval completeness: raw=4, normalized=0.75"
+    },
+    {
+      "name": "geval_clarity",
+      "dimension": "observability",
+      "value": 0.75,
+      "target": null,
+      "passed": true,
+      "detail": "G-Eval clarity: raw=4, normalized=0.75"
+    },
+    {
+      "name": "geval_spatial_accuracy",
+      "dimension": "observability",
+      "value": 0.75,
+      "target": null,
+      "passed": true,
+      "detail": "G-Eval spatial_accuracy: raw=4, normalized=0.75"
+    },
+    {
+      "name": "geval_actionability",
+      "dimension": "observability",
+      "value": 0.75,
+      "target": null,
+      "passed": true,
+      "detail": "G-Eval actionability: raw=4, normalized=0.75"
+    },
+    {
+      "name": "multihop_spatial_accuracy",
+      "dimension": "observability",
+      "value": 1.0,
+      "target": null,
+      "passed": true,
+      "detail": "1999/1999 spatial questions answered correctly."
+    },
+    {
       "name": "command_semantic_reliability",
       "dimension": "controllability",
       "value": 1.0,
@@ -351,6 +463,6 @@
     "entity_count": 24,
     "collision_count": 1,
     "bricks_destroyed": 1,
-    "sim_time_ms": 7.8
+    "sim_time_ms": 8.5
   }
 }

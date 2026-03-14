@@ -94,9 +94,35 @@ class TestAgentRun:
         run = self._make_run(tmp_path)
         assert run.game_exists is True
 
+    def test_game_exists_fallback_parent_dir(self, tmp_path: Path) -> None:
+        """game.py in parent dir should be found via fallback."""
+        subdir = tmp_path / "timestamp_subdir"
+        subdir.mkdir()
+        (tmp_path / "game.py").write_text("print('hello')")
+        run = self._make_run(subdir)
+        assert run.game_exists is True
+        assert run.game_script == tmp_path / "game.py"
+
+    def test_game_script_prefers_workdir_over_parent(self, tmp_path: Path) -> None:
+        """If game.py exists in both workdir and parent, prefer workdir."""
+        subdir = tmp_path / "timestamp_subdir"
+        subdir.mkdir()
+        (subdir / "game.py").write_text("print('workdir')")
+        (tmp_path / "game.py").write_text("print('parent')")
+        run = self._make_run(subdir)
+        assert run.game_script == subdir / "game.py"
+
     def test_signal_done(self, tmp_path: Path) -> None:
         (tmp_path / "DONE.txt").write_text("done")
         run = self._make_run(tmp_path, exit_code=0)
+        assert run.signal == "DONE"
+
+    def test_signal_done_fallback_parent(self, tmp_path: Path) -> None:
+        """DONE.txt in parent dir should be found via fallback."""
+        subdir = tmp_path / "timestamp_subdir"
+        subdir.mkdir()
+        (tmp_path / "DONE.txt").write_text("done")
+        run = self._make_run(subdir, exit_code=0)
         assert run.signal == "DONE"
 
     def test_signal_stuck(self, tmp_path: Path) -> None:
