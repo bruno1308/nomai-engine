@@ -204,6 +204,8 @@ impl PhysicsWorld {
 
         let collider = ColliderBuilder::new(shape)
             .restitution(body.restitution as Real)
+            .restitution_combine_rule(CoefficientCombineRule::Max)
+            .friction(0.0)
             .sensor(body.is_sensor)
             .active_events(ActiveEvents::COLLISION_EVENTS)
             .build();
