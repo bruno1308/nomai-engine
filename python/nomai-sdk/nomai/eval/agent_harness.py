@@ -64,7 +64,8 @@ Your task:
 5. Write a Python script called `game.py` in the current directory.
    - Sets up the engine, spawns entities, registers physics, loads your WASM.
    - Runs the simulation (WASM handles collisions automatically).
-   - Prints snapshot.summary() and saves snapshot.json.
+   - Prints snapshot.summary() and saves snapshot via:
+     json.dump(engine.scene_snapshot().to_dict(), open("snapshot.json", "w"))
 6. Run game.py to verify it works.
 7. Use snapshot.summary() to inspect game state — the engine is headless.
 8. Fix any issues by iterating on the AssemblyScript and/or Python.

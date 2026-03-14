@@ -117,7 +117,8 @@ Your output consists of TWO files:
    - Run for 300 ticks (collision handling is automatic via WASM)
    - Print the final `engine.scene_snapshot().summary()` to stdout
    - Print `ENTITY_COUNT: <N>` as the last line of stdout
-   - Save the final snapshot as `snapshot.json`
+   - Save the final snapshot as `snapshot.json` using:
+     `json.dump(engine.scene_snapshot().to_dict(), open("snapshot.json", "w"))`
 
 ## Reference
 - See `docs/ai/nomai-sdk-reference.md` for the full API reference
