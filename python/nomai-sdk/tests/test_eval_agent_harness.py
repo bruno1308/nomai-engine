@@ -293,6 +293,9 @@ class TestModuleConstants:
         assert "DONE.txt" in AGENT_SYSTEM_PROMPT
         assert "STUCK.txt" in AGENT_SYSTEM_PROMPT
 
+    def test_agent_system_prompt_mentions_snapshot_json(self) -> None:
+        assert "snapshot.json" in AGENT_SYSTEM_PROMPT
+
 
 # ---------------------------------------------------------------------------
 # score_game

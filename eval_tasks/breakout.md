@@ -64,6 +64,7 @@ The script must:
 5. Run for 300 ticks with collision-based brick despawning
 6. Print the final `engine.scene_snapshot().summary()` to stdout
 7. Print `ENTITY_COUNT: <N>` as the last line of stdout
+8. Save the final snapshot as `snapshot.json` via `json.dump(snapshot.to_dict(), open("snapshot.json", "w"))`
 
 ## Reference
 - See `docs/ai/nomai-sdk-reference.md` for the full API reference

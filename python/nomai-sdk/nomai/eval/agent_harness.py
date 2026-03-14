@@ -40,8 +40,12 @@ Your task:
 4. Run the script to verify it works.
 5. Use snapshot.summary() to inspect the game state visually.
 6. Fix any issues you find by iterating on the script.
-7. When you are satisfied the game works correctly, create a file called DONE.txt.
-8. If you are stuck and cannot make further progress, create a file called STUCK.txt \
+7. Save the final snapshot as JSON for scoring:
+   import json
+   with open("snapshot.json", "w") as f:
+       json.dump(snapshot.to_dict(), f)
+8. When you are satisfied the game works correctly, create a file called DONE.txt.
+9. If you are stuck and cannot make further progress, create a file called STUCK.txt \
 with a description of what went wrong.
 
 Important notes:
