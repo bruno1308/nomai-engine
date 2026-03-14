@@ -26,6 +26,7 @@
       "tick": 3
     }
   ],
+  "diagnostics": [],
   "entity_despawns": [],
   "entity_spawns": [],
   "events": [],

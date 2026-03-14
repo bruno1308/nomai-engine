@@ -57,6 +57,30 @@ use serde::{Deserialize, Serialize};
 use crate::journal::{ChangeJournal, ComponentChange};
 
 // ---------------------------------------------------------------------------
+// DiagnosticEntry
+// ---------------------------------------------------------------------------
+
+/// A diagnostic message surfaced by the engine to help AI agents
+/// identify common mistakes without pixel-peeking.
+///
+/// Diagnostics are generated during each tick by engine subsystems (e.g.,
+/// the tick loop checking for missing components). They are included in
+/// the [`TickManifest`] so that AI verification can detect and act on
+/// configuration errors, missing components, or suspicious state.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct DiagnosticEntry {
+    /// Severity level: `"info"`, `"warning"`, or `"error"`.
+    pub severity: String,
+    /// Human-readable diagnostic message describing the issue and
+    /// suggesting how to fix it.
+    pub message: String,
+    /// The entity ID affected by this diagnostic, if applicable.
+    pub entity_id: Option<EntityId>,
+    /// The system or subsystem that produced this diagnostic.
+    pub system: String,
+}
+
+// ---------------------------------------------------------------------------
 // GameEvent
 // ---------------------------------------------------------------------------
 
@@ -205,6 +229,14 @@ pub struct TickManifest {
     pub commands_processed: usize,
     /// Number of commands that were applied successfully.
     pub commands_succeeded: usize,
+    /// Diagnostic messages generated during this tick.
+    ///
+    /// Diagnostics surface common mistakes (e.g., missing components,
+    /// suspicious state) to help AI agents self-correct without
+    /// pixel-peeking. Defaults to an empty vec so that existing
+    /// serialized manifests deserialize without error.
+    #[serde(default)]
+    pub diagnostics: Vec<DiagnosticEntry>,
 }
 
 // ---------------------------------------------------------------------------
@@ -244,6 +276,11 @@ pub struct ManifestPipeline {
     max_history: usize,
     /// Registered custom aggregate functions.
     custom_aggregates: Vec<(String, AggregateFn)>,
+    /// Diagnostic entries accumulated during the current tick.
+    ///
+    /// Cleared in [`begin_tick`](Self::begin_tick) and drained into the
+    /// [`TickManifest`] in [`end_tick`](Self::end_tick).
+    diagnostics: Vec<DiagnosticEntry>,
 }
 
 impl ManifestPipeline {
@@ -265,6 +302,7 @@ impl ManifestPipeline {
             history: VecDeque::new(),
             max_history,
             custom_aggregates: Vec::new(),
+            diagnostics: Vec::new(),
         }
     }
 
@@ -279,6 +317,7 @@ impl ManifestPipeline {
         self.current_despawns.clear();
         self.current_commands_processed = 0;
         self.current_commands_succeeded = 0;
+        self.diagnostics.clear();
     }
 
     /// Process applied commands from a tick.
@@ -449,6 +488,16 @@ impl ManifestPipeline {
         self.events.push(event);
     }
 
+    /// Add a diagnostic entry for the current tick.
+    ///
+    /// Diagnostics are surfaced in the [`TickManifest`] to help AI agents
+    /// identify common configuration mistakes (e.g., entity has position
+    /// but no size component, making it invisible). They are cleared at
+    /// the start of each tick and drained into the manifest at the end.
+    pub fn add_diagnostic(&mut self, entry: DiagnosticEntry) {
+        self.diagnostics.push(entry);
+    }
+
     /// Finalize the tick and produce a [`TickManifest`].
     ///
     /// Computes aggregates from the current world state and entity index,
@@ -481,6 +530,7 @@ impl ManifestPipeline {
             systems_executed,
             commands_processed: self.current_commands_processed,
             commands_succeeded: self.current_commands_succeeded,
+            diagnostics: std::mem::take(&mut self.diagnostics),
         };
 
         // Push to history, trimming if necessary.
@@ -2073,5 +2123,161 @@ mod tests {
         assert_eq!(pipeline.entity_index()[entity_b].spawned_at_tick, 2);
         assert_eq!(pipeline.entity_index()[entity_b].entity_type, "character");
         assert_eq!(pipeline.entity_index()[entity_b].role, "enemy");
+    }
+
+    // -- 24. DiagnosticEntry serialization roundtrip -------------------------
+
+    #[test]
+    fn diagnostic_entry_serialization_roundtrip() {
+        let entry = DiagnosticEntry {
+            severity: "warning".to_owned(),
+            message: "Entity has position but no size".to_owned(),
+            entity_id: Some(EntityId::new(42, 0)),
+            system: "tick_diagnostics".to_owned(),
+        };
+
+        let json = serde_json::to_string(&entry).unwrap();
+        let deserialized: DiagnosticEntry = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(deserialized, entry);
+        assert_eq!(deserialized.severity, "warning");
+        assert_eq!(deserialized.message, "Entity has position but no size");
+        assert_eq!(deserialized.entity_id, Some(EntityId::new(42, 0)));
+        assert_eq!(deserialized.system, "tick_diagnostics");
+    }
+
+    #[test]
+    fn diagnostic_entry_without_entity_id_serializes() {
+        let entry = DiagnosticEntry {
+            severity: "info".to_owned(),
+            message: "No entities spawned this tick".to_owned(),
+            entity_id: None,
+            system: "stats".to_owned(),
+        };
+
+        let json = serde_json::to_string(&entry).unwrap();
+        let deserialized: DiagnosticEntry = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(deserialized, entry);
+        assert_eq!(deserialized.entity_id, None);
+    }
+
+    // -- 25. TickManifest includes empty diagnostics by default ---------------
+
+    #[test]
+    fn tick_manifest_has_empty_diagnostics_by_default() {
+        let world = setup_world();
+        let mut pipeline = ManifestPipeline::new();
+
+        pipeline.begin_tick();
+        pipeline.process_commands(&[], 1, &world);
+        let manifest = pipeline.end_tick(1, 0.0, vec![], &world);
+
+        assert!(manifest.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn tick_manifest_diagnostics_deserialize_from_missing_field() {
+        // Simulates deserializing a manifest produced by an older engine
+        // version that did not include the diagnostics field.
+        let json = r#"{
+            "tick": 1,
+            "sim_time": 0.0,
+            "entity_spawns": [],
+            "entity_despawns": [],
+            "component_changes": [],
+            "events": [],
+            "aggregates": {
+                "entity_count_by_tier": {},
+                "entity_count_by_type": {},
+                "total_entity_count": 0
+            },
+            "systems_executed": [],
+            "commands_processed": 0,
+            "commands_succeeded": 0
+        }"#;
+
+        let manifest: TickManifest = serde_json::from_str(json).unwrap();
+        assert!(manifest.diagnostics.is_empty());
+    }
+
+    // -- 26. add_diagnostic works and diagnostics appear in end_tick ----------
+
+    #[test]
+    fn add_diagnostic_appears_in_manifest() {
+        let world = setup_world();
+        let mut pipeline = ManifestPipeline::new();
+
+        pipeline.begin_tick();
+        pipeline.process_commands(&[], 1, &world);
+
+        pipeline.add_diagnostic(DiagnosticEntry {
+            severity: "warning".to_owned(),
+            message: "Entity has position but no size".to_owned(),
+            entity_id: Some(EntityId::new(7, 0)),
+            system: "tick_diagnostics".to_owned(),
+        });
+        pipeline.add_diagnostic(DiagnosticEntry {
+            severity: "error".to_owned(),
+            message: "Collision detected with dead entity".to_owned(),
+            entity_id: Some(EntityId::new(99, 0)),
+            system: "physics".to_owned(),
+        });
+
+        let manifest = pipeline.end_tick(1, 0.0, vec![], &world);
+
+        assert_eq!(manifest.diagnostics.len(), 2);
+        assert_eq!(manifest.diagnostics[0].severity, "warning");
+        assert_eq!(manifest.diagnostics[1].severity, "error");
+        assert_eq!(manifest.diagnostics[1].system, "physics");
+    }
+
+    #[test]
+    fn diagnostics_cleared_between_ticks() {
+        let world = setup_world();
+        let mut pipeline = ManifestPipeline::new();
+
+        // Tick 1: add a diagnostic.
+        pipeline.begin_tick();
+        pipeline.add_diagnostic(DiagnosticEntry {
+            severity: "warning".to_owned(),
+            message: "test warning".to_owned(),
+            entity_id: None,
+            system: "test".to_owned(),
+        });
+        let m1 = pipeline.end_tick(1, 0.0, vec![], &world);
+        assert_eq!(m1.diagnostics.len(), 1);
+
+        // Tick 2: no diagnostics added.
+        pipeline.begin_tick();
+        let m2 = pipeline.end_tick(2, 0.0, vec![], &world);
+        assert!(m2.diagnostics.is_empty(), "diagnostics should be cleared between ticks");
+    }
+
+    #[test]
+    fn diagnostics_survive_json_roundtrip() {
+        let world = setup_world();
+        let mut pipeline = ManifestPipeline::new();
+
+        pipeline.begin_tick();
+        pipeline.add_diagnostic(DiagnosticEntry {
+            severity: "warning".to_owned(),
+            message: "Entity 42 has position but no size".to_owned(),
+            entity_id: Some(EntityId::new(42, 0)),
+            system: "tick_diagnostics".to_owned(),
+        });
+        let manifest = pipeline.end_tick(1, 0.0, vec![], &world);
+
+        let json = serde_json::to_string_pretty(&manifest).unwrap();
+        let roundtrip: TickManifest = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(roundtrip.diagnostics.len(), 1);
+        assert_eq!(roundtrip.diagnostics[0].severity, "warning");
+        assert_eq!(
+            roundtrip.diagnostics[0].message,
+            "Entity 42 has position but no size"
+        );
+        assert_eq!(roundtrip.diagnostics[0].entity_id, Some(EntityId::new(42, 0)));
+        assert_eq!(roundtrip.diagnostics[0].system, "tick_diagnostics");
     }
 }

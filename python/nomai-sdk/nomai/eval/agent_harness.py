@@ -20,6 +20,7 @@ from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
 
+from nomai.breakout_intents import build_breakout_suite
 from nomai.eval.autonomy import TaskResult
 from nomai.eval.llm_client import ClaudeCodeLLMClient
 from nomai.eval.reasoning import (
@@ -94,6 +95,7 @@ class AgentConfig:
         judge_model: Model alias used for LLM-judged scoring (e.g. ``"sonnet"``, ``"opus"``).
         max_budget_usd: Maximum spend for the agent session.
         timeout_s: Subprocess wall-clock timeout in seconds.
+        max_iterations: Maximum write-verify-fix iterations before giving up.
     """
 
     task: str
@@ -101,6 +103,7 @@ class AgentConfig:
     judge_model: str | None = None
     max_budget_usd: float = 5.0
     timeout_s: int = 600
+    max_iterations: int = 3
 
 
 @dataclass
@@ -171,6 +174,49 @@ class AgentRun:
 
 
 # ---------------------------------------------------------------------------
+# Feedback prompt builder
+# ---------------------------------------------------------------------------
+
+def _build_feedback_prompt(
+    iteration: int,
+    validation: SnapshotValidation | None,
+    snapshot_summary: str,
+) -> str:
+    """Build feedback prompt from verification failures for the next iteration.
+
+    The returned string is appended to the user prompt so the agent sees
+    exactly which checks failed and what the game state looked like.
+
+    Args:
+        iteration: The iteration number that just completed (1-indexed).
+        validation: Structural validation result, or ``None`` if no snapshot
+            was available.
+        snapshot_summary: Human-readable scene summary text (from
+            ``SceneSnapshot.summary()``), or a fallback message.
+
+    Returns:
+        A markdown-formatted feedback string for the agent.
+    """
+    lines = [
+        f"## Iteration {iteration} Results -- Verification FAILED\n",
+        "Your game was tested and these checks FAILED:\n",
+    ]
+
+    if validation is not None:
+        for name in validation.failures:
+            detail = validation.details.get(name, "")
+            lines.append(f"- **{name}**: {detail}")
+
+    lines.append(f"\n## Current Game State\n\n```\n{snapshot_summary}\n```\n")
+    lines.append(
+        "\nFix the issues above and re-run. Iterate on your existing code -- "
+        "do NOT start from scratch."
+    )
+
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
 # launch_agent
 # ---------------------------------------------------------------------------
 
@@ -178,6 +224,8 @@ def launch_agent(
     config: AgentConfig,
     *,
     project_root: Path | None = None,
+    feedback_prompt: str | None = None,
+    workdir: Path | None = None,
 ) -> AgentRun:
     """Launch Claude Code as an autonomous agent to build a game from a GDD.
 
@@ -189,16 +237,24 @@ def launch_agent(
         config: Agent configuration.
         project_root: Override for the project root directory.  Defaults to
             ``PROJECT_ROOT`` (auto-detected from this file's location).
+        feedback_prompt: Optional feedback text from a previous iteration's
+            verification failures.  Appended to the user prompt so the agent
+            can see what went wrong and iterate.
+        workdir: Optional working directory to reuse from a previous
+            iteration.  If ``None``, a new timestamped directory is created.
 
     Returns:
         An ``AgentRun`` capturing the subprocess results.
     """
     root = project_root or PROJECT_ROOT
 
-    # Create isolated workdir (microseconds to avoid collisions in batch runs)
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-    workdir = root / "eval_workdir" / timestamp
-    workdir.mkdir(parents=True, exist_ok=True)
+    # Reuse provided workdir or create a new timestamped one
+    if workdir is not None:
+        workdir.mkdir(parents=True, exist_ok=True)
+    else:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+        workdir = root / "eval_workdir" / timestamp
+        workdir.mkdir(parents=True, exist_ok=True)
 
     # Read GDD
     gdd_path = root / "eval_tasks" / f"{config.task}.md"
@@ -222,12 +278,22 @@ def launch_agent(
     if host_ts_path.exists():
         host_ts_content = host_ts_path.read_text(encoding="utf-8")
 
+    # Build verification checklist from breakout intents
+    suite = build_breakout_suite()
+    intent_checklist = "\n".join(
+        f"- {intent.name}: {intent.description}"
+        for intent in suite.intents
+    )
+
     # Build user prompt
     prompt = (
         f"## Game Design Document\n\n{gdd_content}\n\n"
         f"## SDK Reference\n\n{sdk_ref_content}\n\n"
         f"## WASM Host API (gameplay/assembly/host.ts)\n\n"
         f"```typescript\n{host_ts_content}\n```\n\n"
+        f"## Verification Checklist\n\n"
+        f"Your game will be verified against these criteria:\n\n"
+        f"{intent_checklist}\n\n"
         f"## Output Instructions\n\n"
         f"1. Write your AssemblyScript gameplay module under gameplay/assembly/.\n"
         f"2. Compile it: cd gameplay && npx asc assembly/YOUR_FILE.ts "
@@ -235,6 +301,9 @@ def launch_agent(
         f"3. Write `game.py` in the working directory (setup + load WASM + run).\n"
         f"4. Create DONE.txt when finished, or STUCK.txt if you cannot proceed.\n"
     )
+
+    if feedback_prompt:
+        prompt += f"\n\n{feedback_prompt}"
 
     # Build command
     cmd = [
@@ -263,6 +332,8 @@ def launch_agent(
             cmd,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=config.timeout_s,
             env=env,
             cwd=str(workdir),
@@ -438,6 +509,104 @@ def validate_breakout_snapshot(snapshot: SceneSnapshot) -> SnapshotValidation:
         + ("" if some_destroyed else " — ball may not be colliding with bricks")
     )
 
+    # -- Intent-aligned checks (from breakout_intents) -------------------------
+
+    # Intent: paddle_exists — paddle with position and size
+    paddle_ents = roles.get("paddle", [])
+    paddle = paddle_ents[0] if paddle_ents else None
+    checks["paddle_exists"] = has_paddle
+    details["paddle_exists"] = (
+        f"paddle count: {len(paddle_ents)}"
+        + (" (expected 1)" if not has_paddle else "")
+    )
+
+    # Intent: ball_exists — ball with position and velocity
+    ball_ents = roles.get("ball", [])
+    ball = ball_ents[0] if ball_ents else None
+    checks["ball_exists"] = has_ball
+    details["ball_exists"] = (
+        f"ball count: {len(ball_ents)}"
+        + (" (expected 1)" if not has_ball else "")
+    )
+
+    # Intent: bricks_exist — at least 1 brick with position and size
+    checks["bricks_exist"] = has_bricks
+    details["bricks_exist"] = f"brick count: {brick_count}"
+
+    # Intent: paddle_has_components — position and size present
+    if paddle is not None:
+        paddle_has_comps = paddle.position is not None and paddle.size is not None
+        checks["paddle_has_components"] = paddle_has_comps
+        details["paddle_has_components"] = (
+            f"position={'yes' if paddle.position is not None else 'MISSING'}, "
+            f"size={'yes' if paddle.size is not None else 'MISSING'}"
+        )
+    else:
+        checks["paddle_has_components"] = False
+        details["paddle_has_components"] = "no paddle entity"
+
+    # Intent: ball_has_components — position and velocity present
+    if ball is not None:
+        ball_has_comps = ball.position is not None and ball.velocity is not None
+        checks["ball_has_components"] = ball_has_comps
+        details["ball_has_components"] = (
+            f"position={'yes' if ball.position is not None else 'MISSING'}, "
+            f"velocity={'yes' if ball.velocity is not None else 'MISSING'}"
+        )
+    else:
+        checks["ball_has_components"] = False
+        details["ball_has_components"] = "no ball entity"
+
+    # Intent: bricks_have_components — all bricks have position and size
+    brick_ents = roles.get("brick", [])
+    if brick_ents:
+        all_bricks_ok = all(
+            b.position is not None and b.size is not None for b in brick_ents
+        )
+        bad_count = sum(
+            1 for b in brick_ents
+            if b.position is None or b.size is None
+        )
+        checks["bricks_have_components"] = all_bricks_ok
+        details["bricks_have_components"] = (
+            f"all {len(brick_ents)} bricks have position+size"
+            if all_bricks_ok
+            else f"{bad_count}/{len(brick_ents)} bricks missing position or size"
+        )
+    else:
+        checks["bricks_have_components"] = False
+        details["bricks_have_components"] = "no brick entities"
+
+    # Intent: ball_speed_bounded — velocity components in [-500, 500]
+    SPEED_LIMIT = 500.0
+    if ball is not None and ball.velocity is not None:
+        vx, vy = ball.velocity
+        speed_ok = (
+            -SPEED_LIMIT <= vx <= SPEED_LIMIT
+            and -SPEED_LIMIT <= vy <= SPEED_LIMIT
+        )
+        checks["ball_speed_bounded"] = speed_ok
+        details["ball_speed_bounded"] = (
+            f"velocity=({vx:.1f}, {vy:.1f}), "
+            f"limit=[-{SPEED_LIMIT}, {SPEED_LIMIT}]"
+        )
+    else:
+        checks["ball_speed_bounded"] = False
+        details["ball_speed_bounded"] = "no ball velocity to check"
+
+    # Intent: paddle_in_bounds — paddle x in [0, 800]
+    PADDLE_X_MIN, PADDLE_X_MAX = 0.0, 800.0
+    if paddle is not None and paddle.position is not None:
+        px = paddle.position[0]
+        paddle_ok = PADDLE_X_MIN <= px <= PADDLE_X_MAX
+        checks["paddle_in_bounds"] = paddle_ok
+        details["paddle_in_bounds"] = (
+            f"paddle x={px:.1f}, bounds=[{PADDLE_X_MIN}, {PADDLE_X_MAX}]"
+        )
+    else:
+        checks["paddle_in_bounds"] = False
+        details["paddle_in_bounds"] = "no paddle position to check"
+
     return SnapshotValidation(checks=checks, details=details)
 
 
@@ -604,10 +773,19 @@ def score_game(run: AgentRun, *, project_root: Path | None = None, judge_model: 
         "replay_deterministic": replay_deterministic,
         "stdout_hash": hashlib.sha256(result1.stdout.encode()).hexdigest(),
     }
+    if snapshot is not None:
+        ground_truth["snapshot_summary"] = snapshot.summary()
     if validation is not None:
         ground_truth["validation_passed"] = validation.passed
         ground_truth["validation_checks"] = validation.checks
         ground_truth["validation_details"] = validation.details
+        ground_truth["intent_results"] = {
+            check_name: {
+                "passed": passed,
+                "detail": validation.details.get(check_name, ""),
+            }
+            for check_name, passed in validation.checks.items()
+        }
 
     return {
         "task_result": task_result,
@@ -627,15 +805,21 @@ def run_agent_eval(
     max_budget_usd: float = 5.0,
     *,
     judge_model: str | None = None,
+    max_iterations: int = 3,
     project_root: Path | None = None,
 ) -> dict:
-    """Run a complete agent evaluation: launch, score, and report.
+    """Run a complete agent evaluation: launch, score, and iterate.
+
+    If the first iteration fails verification, the agent is re-launched
+    with feedback describing the failures.  This repeats up to
+    *max_iterations* times or until the game passes verification.
 
     Args:
         task: GDD task name.
         model: Claude model alias.
         max_budget_usd: Maximum spend.
         judge_model: Model alias used for LLM-judged scoring.
+        max_iterations: Maximum write-verify-fix iterations (default 3).
         project_root: Override for the project root directory.
 
     Returns:
@@ -649,6 +833,7 @@ def run_agent_eval(
         model=model,
         judge_model=judge_model,
         max_budget_usd=max_budget_usd,
+        max_iterations=max_iterations,
     )
 
     # --- Header ---
@@ -656,40 +841,86 @@ def run_agent_eval(
     print(f"  Agent Eval: task={config.task}  model={config.model}")
     print(f"  judge={config.judge_model or 'none (deep scoring off)'}")
     print(f"  budget=${config.max_budget_usd:.2f}  timeout={config.timeout_s}s")
+    print(f"  max_iterations={config.max_iterations}")
     print("=" * 60)
 
-    # --- Launch ---
-    print("\n[1/3] Launching agent...")
-    agent_run = launch_agent(config, project_root=root)
-    print(f"  Agent finished: exit_code={agent_run.exit_code}  "
-          f"wall_time={agent_run.wall_time_s:.1f}s  signal={agent_run.signal}")
-    print(f"  game.py exists: {agent_run.game_exists}")
+    feedback: str | None = None
+    prev_workdir: Path | None = None
+    iteration = 0
+    score: dict = {}
+    task_result = TaskResult(task_id=config.task, succeeded=False)
+    agent_run: AgentRun | None = None
 
-    # --- Save agent logs ---
-    (agent_run.workdir / "agent_stdout.log").write_text(
-        agent_run.stdout, encoding="utf-8"
-    )
-    (agent_run.workdir / "agent_stderr.log").write_text(
-        agent_run.stderr, encoding="utf-8"
-    )
+    for iteration in range(1, config.max_iterations + 1):
+        print(f"\n{'=' * 60}")
+        print(f"  Iteration {iteration}/{config.max_iterations}")
+        print(f"{'=' * 60}")
 
-    # --- Score ---
-    print("\n[2/3] Scoring game...")
-    score = score_game(agent_run, project_root=root, judge_model=config.judge_model)
-    task_result: TaskResult = score["task_result"]
-    print(f"  succeeded: {task_result.succeeded}")
-    print(f"  replay_deterministic: {task_result.replay_deterministic}")
-    if "entity_count" in score["ground_truth"]:
-        print(f"  entity_count: {score['ground_truth']['entity_count']}")
+        # --- Launch ---
+        print(f"\n[{iteration}.1] Launching agent...")
+        agent_run = launch_agent(
+            config,
+            project_root=root,
+            feedback_prompt=feedback,
+            workdir=prev_workdir,
+        )
+        print(f"  Agent finished: exit_code={agent_run.exit_code}  "
+              f"wall_time={agent_run.wall_time_s:.1f}s  signal={agent_run.signal}")
+        print(f"  game.py exists: {agent_run.game_exists}")
 
-    # Print structural validation results
-    gt = score["ground_truth"]
-    if "validation_checks" in gt:
-        print("\n  Structural validation:")
-        for check_name, passed in gt["validation_checks"].items():
-            status = "PASS" if passed else "FAIL"
-            detail = gt["validation_details"].get(check_name, "")
-            print(f"    [{status}] {check_name}: {detail}")
+        # --- Save agent logs (per-iteration) ---
+        (agent_run.workdir / f"agent_stdout_iter{iteration}.log").write_text(
+            agent_run.stdout or "", encoding="utf-8"
+        )
+        (agent_run.workdir / f"agent_stderr_iter{iteration}.log").write_text(
+            agent_run.stderr or "", encoding="utf-8"
+        )
+
+        # --- Score ---
+        print(f"\n[{iteration}.2] Scoring game...")
+        score = score_game(agent_run, project_root=root, judge_model=config.judge_model)
+        task_result = score["task_result"]
+        print(f"  succeeded: {task_result.succeeded}")
+        print(f"  replay_deterministic: {task_result.replay_deterministic}")
+        if "entity_count" in score["ground_truth"]:
+            print(f"  entity_count: {score['ground_truth']['entity_count']}")
+
+        # Print intent-style validation results
+        gt = score["ground_truth"]
+        if "intent_results" in gt:
+            print("\n  Verification intent results:")
+            for intent_name, res in gt["intent_results"].items():
+                status = "PASS" if res["passed"] else "FAIL"
+                detail = res.get("detail", "")
+                print(f"    [{status}] {intent_name}: {detail}")
+        elif "validation_checks" in gt:
+            print("\n  Structural validation:")
+            for check_name, passed in gt["validation_checks"].items():
+                status = "PASS" if passed else "FAIL"
+                detail = gt["validation_details"].get(check_name, "")
+                print(f"    [{status}] {check_name}: {detail}")
+
+        if task_result.succeeded:
+            print(f"\n  Verification PASSED on iteration {iteration}.")
+            break
+
+        # --- Build feedback for next iteration ---
+        if iteration < config.max_iterations:
+            validation_obj: SnapshotValidation | None = None
+            if "validation_checks" in gt:
+                validation_obj = SnapshotValidation(
+                    checks=gt["validation_checks"],
+                    details=gt.get("validation_details", {}),
+                )
+
+            snapshot_summary = gt.get("snapshot_summary", "not available")
+            feedback = _build_feedback_prompt(
+                iteration, validation_obj, str(snapshot_summary)
+            )
+            prev_workdir = agent_run.workdir
+            print(f"\n  Verification FAILED. Feeding back {len(validation_obj.failures) if validation_obj else 0} failures to next iteration.")
+
+    assert agent_run is not None  # at least one iteration always runs
 
     # --- Build report ---
     report = {
@@ -700,6 +931,9 @@ def run_agent_eval(
             "wall_time_s": agent_run.wall_time_s,
             "exit_code": agent_run.exit_code,
             "signal": agent_run.signal,
+            "iterations": iteration,
+            "max_iterations": config.max_iterations,
+            "converged": task_result.succeeded,
         },
         "task_result": asdict(task_result),
         "ground_truth": score["ground_truth"],
@@ -711,7 +945,7 @@ def run_agent_eval(
     report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
 
     # --- Verdict ---
-    print("\n[3/3] Verdict")
+    print("\n[final] Verdict")
     llm_scores = score.get("llm_scores")
     if llm_scores:
         print(f"\n  LLM Scores (judge={llm_scores['judge_model']}):")
@@ -724,7 +958,7 @@ def run_agent_eval(
         verdict = "PARTIAL"
     else:
         verdict = "FAIL"
-    print(f"  >>> {verdict} <<<")
+    print(f"  >>> {verdict} (iterations: {iteration}/{config.max_iterations}) <<<")
     print(f"  Report saved to: {report_path}")
     print("=" * 60)
 

@@ -52,9 +52,9 @@
 
 use std::time::{Duration, Instant};
 
-use nomai_ecs::command::CommandBuffer;
+use nomai_ecs::command::{CommandBuffer, CommandKind};
 use nomai_ecs::world::World;
-use nomai_manifest::manifest::{ManifestPipeline, TickManifest};
+use nomai_manifest::manifest::{DiagnosticEntry, ManifestPipeline, TickManifest};
 
 use crate::physics::CollisionPair;
 
@@ -488,6 +488,12 @@ impl TickLoop {
         self.manifest
             .process_commands(&applied, self.tick_counter, &self.world);
 
+        // Phase 6.5: Run diagnostic checks on the applied commands.
+        //
+        // These checks surface common mistakes to the manifest so that AI
+        // agents can self-correct without pixel-peeking.
+        self.run_diagnostics(&applied);
+
         // Phase 7: Finalize manifest for this tick (before advancing counter).
         let mut system_names: Vec<String> = self.systems.iter().map(|s| s.name.clone()).collect();
         if self.physics.is_some() {
@@ -697,6 +703,52 @@ impl TickLoop {
     /// Mutable access to the WASM module, if attached.
     pub fn wasm_module_mut(&mut self) -> Option<&mut nomai_wasm_host::WasmModule> {
         self.wasm_module.as_mut()
+    }
+
+    // -- diagnostic checks ----------------------------------------------------
+
+    /// Run diagnostic checks on the applied commands for the current tick.
+    ///
+    /// Currently checks:
+    /// - **Missing size component**: Entities spawned with a `"position"`
+    ///   component but no `"size"` component. Such entities will exist in
+    ///   the world and physics simulation but may be invisible in the
+    ///   renderer because they have no spatial extent.
+    fn run_diagnostics(&mut self, applied: &[nomai_ecs::command::Command]) {
+        for cmd in applied {
+            if !cmd.applied_successfully {
+                continue;
+            }
+
+            let (components, entity_id) = match &cmd.kind {
+                CommandKind::SpawnSemantic {
+                    components,
+                    identity: _,
+                } => (components, cmd.spawned_entity),
+                CommandKind::SpawnPooled {
+                    components,
+                    identity: _,
+                } => (components, cmd.spawned_entity),
+                _ => continue,
+            };
+
+            let has_position = components.iter().any(|(name, _)| name == "position");
+            let has_size = components.iter().any(|(name, _)| name == "size");
+
+            if has_position && !has_size {
+                self.manifest.add_diagnostic(DiagnosticEntry {
+                    severity: "warning".to_owned(),
+                    message: format!(
+                        "Entity {:?} spawned with \"position\" but no \"size\" component -- \
+                         it may be invisible in the renderer. Add a \"size\" component \
+                         (e.g., {{\"width\": 32, \"height\": 32}}) to give it spatial extent.",
+                        entity_id,
+                    ),
+                    entity_id,
+                    system: "tick_diagnostics".to_owned(),
+                });
+            }
+        }
     }
 
     // -- snapshot helpers (used by crate::snapshot) ---------------------------

@@ -327,6 +327,49 @@ class CausalChain:
 
 
 # ---------------------------------------------------------------------------
+# DiagnosticEntry
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class DiagnosticEntry:
+    """A diagnostic message from the engine.
+
+    Diagnostics surface common mistakes (e.g., missing components,
+    suspicious state) to help AI agents self-correct without
+    pixel-peeking.
+
+    Mirrors ``nomai_manifest::manifest::DiagnosticEntry``.
+    """
+    severity: str
+    message: str
+    entity_id: int | None
+    system: str
+
+    def to_dict(self) -> dict[str, object]:
+        """Serialize to a dict matching the Rust serde JSON layout."""
+        return {
+            "severity": self.severity,
+            "message": self.message,
+            "entity_id": self.entity_id,
+            "system": self.system,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, object]) -> Self:
+        """Parse from a dict matching the Rust serde JSON layout."""
+        raw_entity = data.get("entity_id")
+        entity_id: int | None = None
+        if raw_entity is not None:
+            entity_id = _parse_entity_id(raw_entity)
+        return cls(
+            severity=str(data["severity"]),
+            message=str(data["message"]),
+            entity_id=entity_id,
+            system=str(data["system"]),
+        )
+
+
+# ---------------------------------------------------------------------------
 # EntityEntry
 # ---------------------------------------------------------------------------
 
@@ -394,6 +437,7 @@ class TickManifest:
     systems_executed: list[str]
     commands_processed: int
     commands_succeeded: int
+    diagnostics: list[DiagnosticEntry] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, object]:
         """Serialize to a dict matching the Rust serde JSON layout."""
@@ -408,6 +452,7 @@ class TickManifest:
             "systems_executed": self.systems_executed,
             "commands_processed": self.commands_processed,
             "commands_succeeded": self.commands_succeeded,
+            "diagnostics": [d.to_dict() for d in self.diagnostics],
         }
 
     def to_json(self, indent: int | None = 2) -> str:
@@ -452,6 +497,11 @@ class TickManifest:
         if isinstance(raw_systems, list):
             systems = [str(s) for s in raw_systems]
 
+        raw_diagnostics = data.get("diagnostics", [])
+        diagnostics: list[DiagnosticEntry] = []
+        if isinstance(raw_diagnostics, list):
+            diagnostics = [DiagnosticEntry.from_dict(d) for d in raw_diagnostics]  # type: ignore[arg-type]
+
         return cls(
             tick=int(data.get("tick", 0)),  # type: ignore[arg-type]
             sim_time=float(data.get("sim_time", 0.0)),  # type: ignore[arg-type]
@@ -463,6 +513,7 @@ class TickManifest:
             systems_executed=systems,
             commands_processed=int(data.get("commands_processed", 0)),  # type: ignore[arg-type]
             commands_succeeded=int(data.get("commands_succeeded", 0)),  # type: ignore[arg-type]
+            diagnostics=diagnostics,
         )
 
     @classmethod

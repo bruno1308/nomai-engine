@@ -13,6 +13,7 @@ from nomai.manifest import (
     CausalChain,
     CausalStep,
     ComponentChange,
+    DiagnosticEntry,
     EntityEntry,
     GameEvent,
     TickManifest,
@@ -677,3 +678,211 @@ class TestTickManifest:
         assert manifest.entity_spawns[1] == 4294967296
         assert manifest.entity_spawns[2] == 8589934592
         assert manifest.aggregates.total_entity_count == 3
+
+
+# ---------------------------------------------------------------------------
+# DiagnosticEntry
+# ---------------------------------------------------------------------------
+
+class TestDiagnosticEntry:
+    """Tests for DiagnosticEntry dataclass."""
+
+    def test_construction(self) -> None:
+        """Construct a diagnostic entry."""
+        diag = DiagnosticEntry(
+            severity="warning",
+            message="Entity has position but no size",
+            entity_id=42,
+            system="tick_diagnostics",
+        )
+        assert diag.severity == "warning"
+        assert diag.message == "Entity has position but no size"
+        assert diag.entity_id == 42
+        assert diag.system == "tick_diagnostics"
+
+    def test_construction_without_entity(self) -> None:
+        """Construct a diagnostic entry with no entity_id."""
+        diag = DiagnosticEntry(
+            severity="info",
+            message="No entities spawned this tick",
+            entity_id=None,
+            system="stats",
+        )
+        assert diag.entity_id is None
+
+    def test_frozen(self) -> None:
+        """DiagnosticEntry is immutable."""
+        diag = DiagnosticEntry(
+            severity="warning",
+            message="test",
+            entity_id=None,
+            system="test",
+        )
+        try:
+            diag.severity = "error"  # type: ignore[misc]
+            assert False, "Should have raised FrozenInstanceError"
+        except AttributeError:
+            pass
+
+    def test_to_dict_roundtrip(self) -> None:
+        """to_dict -> from_dict produces an equivalent object."""
+        original = DiagnosticEntry(
+            severity="error",
+            message="Collision with dead entity",
+            entity_id=99,
+            system="physics",
+        )
+        d = original.to_dict()
+        restored = DiagnosticEntry.from_dict(d)
+        assert restored.severity == original.severity
+        assert restored.message == original.message
+        assert restored.entity_id == original.entity_id
+        assert restored.system == original.system
+
+    def test_from_rust_json(self) -> None:
+        """Parse the exact JSON format that Rust serde_json produces."""
+        rust_json = {
+            "severity": "warning",
+            "message": "Entity has position but no size component",
+            "entity_id": 4294967296,
+            "system": "tick_diagnostics",
+        }
+        diag = DiagnosticEntry.from_dict(rust_json)
+        assert diag.severity == "warning"
+        assert diag.entity_id == 4294967296
+        assert diag.system == "tick_diagnostics"
+
+    def test_from_rust_json_null_entity(self) -> None:
+        """Parse diagnostic with null entity_id."""
+        rust_json = {
+            "severity": "info",
+            "message": "No issues",
+            "entity_id": None,
+            "system": "stats",
+        }
+        diag = DiagnosticEntry.from_dict(rust_json)
+        assert diag.entity_id is None
+
+
+# ---------------------------------------------------------------------------
+# TickManifest with Diagnostics
+# ---------------------------------------------------------------------------
+
+class TestTickManifestDiagnostics:
+    """Tests for diagnostics field in TickManifest."""
+
+    def test_default_diagnostics_empty(self) -> None:
+        """TickManifest has empty diagnostics by default."""
+        manifest = TickManifest(
+            tick=1,
+            sim_time=0.0,
+            entity_spawns=[],
+            entity_despawns=[],
+            component_changes=[],
+            events=[],
+            aggregates=Aggregates(
+                entity_count_by_tier={},
+                entity_count_by_type={},
+                total_entity_count=0,
+            ),
+            systems_executed=[],
+            commands_processed=0,
+            commands_succeeded=0,
+        )
+        assert manifest.diagnostics == []
+
+    def test_from_dict_with_diagnostics(self) -> None:
+        """Parse manifest containing diagnostics."""
+        rust_json: dict[str, object] = {
+            "tick": 5,
+            "sim_time": 0.083,
+            "entity_spawns": [],
+            "entity_despawns": [],
+            "component_changes": [],
+            "events": [],
+            "aggregates": {
+                "entity_count_by_tier": {},
+                "entity_count_by_type": {},
+                "total_entity_count": 0,
+            },
+            "systems_executed": [],
+            "commands_processed": 0,
+            "commands_succeeded": 0,
+            "diagnostics": [
+                {
+                    "severity": "warning",
+                    "message": "Entity has position but no size",
+                    "entity_id": 42,
+                    "system": "tick_diagnostics",
+                },
+                {
+                    "severity": "error",
+                    "message": "Dead entity referenced",
+                    "entity_id": None,
+                    "system": "physics",
+                },
+            ],
+        }
+        manifest = TickManifest.from_dict(rust_json)
+        assert len(manifest.diagnostics) == 2
+        assert manifest.diagnostics[0].severity == "warning"
+        assert manifest.diagnostics[0].entity_id == 42
+        assert manifest.diagnostics[1].severity == "error"
+        assert manifest.diagnostics[1].entity_id is None
+
+    def test_from_dict_missing_diagnostics_defaults_empty(self) -> None:
+        """Manifest without diagnostics field defaults to empty list."""
+        rust_json: dict[str, object] = {
+            "tick": 1,
+            "sim_time": 0.0,
+            "entity_spawns": [],
+            "entity_despawns": [],
+            "component_changes": [],
+            "events": [],
+            "aggregates": {
+                "entity_count_by_tier": {},
+                "entity_count_by_type": {},
+                "total_entity_count": 0,
+            },
+            "systems_executed": [],
+            "commands_processed": 0,
+            "commands_succeeded": 0,
+        }
+        manifest = TickManifest.from_dict(rust_json)
+        assert manifest.diagnostics == []
+
+    def test_to_json_roundtrip_with_diagnostics(self) -> None:
+        """TickManifest with diagnostics survives JSON roundtrip."""
+        original = TickManifest(
+            tick=10,
+            sim_time=0.0,
+            entity_spawns=[],
+            entity_despawns=[],
+            component_changes=[],
+            events=[],
+            aggregates=Aggregates(
+                entity_count_by_tier={},
+                entity_count_by_type={},
+                total_entity_count=0,
+            ),
+            systems_executed=[],
+            commands_processed=0,
+            commands_succeeded=0,
+            diagnostics=[
+                DiagnosticEntry(
+                    severity="warning",
+                    message="Test warning",
+                    entity_id=7,
+                    system="test_system",
+                ),
+            ],
+        )
+        json_str = original.to_json()
+        data = json.loads(json_str)
+        restored = TickManifest.from_json(data)
+
+        assert len(restored.diagnostics) == 1
+        assert restored.diagnostics[0].severity == "warning"
+        assert restored.diagnostics[0].message == "Test warning"
+        assert restored.diagnostics[0].entity_id == 7
+        assert restored.diagnostics[0].system == "test_system"

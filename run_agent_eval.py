@@ -36,6 +36,12 @@ def main() -> None:
         default=None,
         help="Model for LLM-judged scoring (omit to skip; e.g. haiku, sonnet)",
     )
+    parser.add_argument(
+        "--max-iterations",
+        type=int,
+        default=3,
+        help="Maximum write-verify-fix iterations (default: 3)",
+    )
     args = parser.parse_args()
 
     from nomai.eval.agent_harness import run_agent_eval
@@ -45,6 +51,7 @@ def main() -> None:
         model=args.model,
         max_budget_usd=args.budget,
         judge_model=args.judge_model,
+        max_iterations=args.max_iterations,
     )
 
     task_result = report.get("task_result", {})
