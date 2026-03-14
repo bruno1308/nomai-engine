@@ -1,20 +1,26 @@
 """Agent eval harness — launches Claude Code as an autonomous game developer.
 
 Provides ``AgentConfig`` for task parameters, ``AgentRun`` for capturing
-results, and ``launch_agent`` to orchestrate the full pipeline: create an
-isolated working directory, compose a prompt from the GDD + SDK reference,
-and invoke ``claude -p`` with full tools access.
+results, ``launch_agent`` to orchestrate the full pipeline, ``score_game``
+to evaluate the agent's output, and ``run_agent_eval`` to run the complete
+evaluation end-to-end.
 """
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 import os
+import re
 import subprocess
+import sys
 import time
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
+
+from nomai.eval.autonomy import TaskResult
 
 logger = logging.getLogger(__name__)
 
@@ -59,12 +65,14 @@ class AgentConfig:
     Attributes:
         task: GDD task name (e.g. ``"breakout"``).
         model: Claude model alias (e.g. ``"sonnet"``, ``"opus"``).
+        judge_model: Model alias used for LLM-judged scoring (e.g. ``"sonnet"``, ``"opus"``).
         max_budget_usd: Maximum spend for the agent session.
         timeout_s: Subprocess wall-clock timeout in seconds.
     """
 
     task: str
     model: str = "sonnet"
+    judge_model: str = "sonnet"
     max_budget_usd: float = 5.0
     timeout_s: int = 600
 
@@ -180,7 +188,7 @@ def launch_agent(
         "--model", config.model,
         "--dangerously-skip-permissions",
         "--max-budget-usd", str(config.max_budget_usd),
-        "--add-dir", str(workdir),
+        "--add-dir", str(root),
     ]
 
     # Prepare environment — strip CLAUDECODE to avoid nesting issues
@@ -200,7 +208,7 @@ def launch_agent(
             text=True,
             timeout=config.timeout_s,
             env=env,
-            cwd=str(root),
+            cwd=str(workdir),
         )
         wall_time = time.monotonic() - t0
         return AgentRun(
@@ -226,3 +234,233 @@ def launch_agent(
             stderr=(exc.stderr or b"").decode("utf-8", errors="replace")
                    if isinstance(exc.stderr, bytes) else (exc.stderr or ""),
         )
+
+
+# ---------------------------------------------------------------------------
+# Helper: run game script
+# ---------------------------------------------------------------------------
+
+def _run_game_script(
+    game_script: Path,
+    *,
+    project_root: Path,
+    timeout: int = 120,
+) -> subprocess.CompletedProcess[str]:
+    """Run a game.py script in a subprocess.
+
+    Args:
+        game_script: Path to the game.py file.
+        project_root: Project root directory (used as cwd so nomai imports work).
+        timeout: Wall-clock timeout in seconds.
+
+    Returns:
+        CompletedProcess with captured stdout/stderr.
+
+    Raises:
+        subprocess.TimeoutExpired: If the script exceeds *timeout* seconds.
+    """
+    return subprocess.run(
+        [sys.executable, str(game_script)],
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        cwd=str(project_root),
+    )
+
+
+def _parse_entity_count(stdout: str) -> int:
+    """Extract ENTITY_COUNT from the last lines of stdout.
+
+    Looks for a line matching ``ENTITY_COUNT: <N>`` and returns the integer.
+    Returns 0 if no match is found.
+    """
+    for line in reversed(stdout.splitlines()):
+        m = re.search(r"ENTITY_COUNT:\s*(\d+)", line)
+        if m:
+            return int(m.group(1))
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# score_game
+# ---------------------------------------------------------------------------
+
+def score_game(run: AgentRun, *, project_root: Path | None = None) -> dict:
+    """Run the agent's game.py and produce a scored TaskResult.
+
+    Executes the game script twice: the first run checks for basic correctness
+    (zero exit code, positive entity count); the second run compares stdout
+    hashes to verify replay determinism.
+
+    Args:
+        run: The AgentRun from ``launch_agent``.
+        project_root: Override for project root.  Defaults to ``PROJECT_ROOT``.
+
+    Returns:
+        A dict with keys ``task_result`` (TaskResult), ``eval_report`` (None),
+        and ``ground_truth`` (dict with run metadata).
+    """
+    root = project_root or PROJECT_ROOT
+
+    # No game script produced — immediate failure
+    if not run.game_exists:
+        return {
+            "task_result": TaskResult(
+                task_id=run.config.task,
+                succeeded=False,
+            ),
+            "eval_report": None,
+            "ground_truth": {"error": "game.py not found"},
+        }
+
+    # First run
+    try:
+        result1 = _run_game_script(run.game_script, project_root=root)
+    except subprocess.TimeoutExpired:
+        return {
+            "task_result": TaskResult(
+                task_id=run.config.task,
+                succeeded=False,
+            ),
+            "eval_report": None,
+            "ground_truth": {"error": "game.py timed out"},
+        }
+
+    if result1.returncode != 0:
+        return {
+            "task_result": TaskResult(
+                task_id=run.config.task,
+                succeeded=False,
+            ),
+            "eval_report": None,
+            "ground_truth": {
+                "error": "game.py crashed",
+                "exit_code": result1.returncode,
+                "stderr": result1.stderr,
+            },
+        }
+
+    # Second run — determinism check
+    try:
+        result2 = _run_game_script(run.game_script, project_root=root)
+    except subprocess.TimeoutExpired:
+        result2 = None
+
+    if result2 is not None:
+        hash1 = hashlib.sha256(result1.stdout.encode()).hexdigest()
+        hash2 = hashlib.sha256(result2.stdout.encode()).hexdigest()
+        replay_deterministic = hash1 == hash2
+    else:
+        replay_deterministic = False
+
+    entity_count = _parse_entity_count(result1.stdout)
+    succeeded = result1.returncode == 0 and entity_count > 0
+
+    task_result = TaskResult(
+        task_id=run.config.task,
+        succeeded=succeeded,
+        replay_deterministic=replay_deterministic,
+    )
+
+    return {
+        "task_result": task_result,
+        "eval_report": None,
+        "ground_truth": {
+            "entity_count": entity_count,
+            "replay_deterministic": replay_deterministic,
+            "stdout_hash": hashlib.sha256(result1.stdout.encode()).hexdigest(),
+        },
+    }
+
+
+# ---------------------------------------------------------------------------
+# run_agent_eval
+# ---------------------------------------------------------------------------
+
+def run_agent_eval(
+    task: str = "breakout",
+    model: str = "sonnet",
+    max_budget_usd: float = 5.0,
+    *,
+    project_root: Path | None = None,
+) -> dict:
+    """Run a complete agent evaluation: launch, score, and report.
+
+    Args:
+        task: GDD task name.
+        model: Claude model alias.
+        max_budget_usd: Maximum spend.
+        project_root: Override for the project root directory.
+
+    Returns:
+        Report dict with ``agent_meta``, ``task_result``, and ``ground_truth``.
+    """
+    root = project_root or PROJECT_ROOT
+
+    config = AgentConfig(
+        task=task,
+        model=model,
+        max_budget_usd=max_budget_usd,
+    )
+
+    # --- Header ---
+    print("=" * 60)
+    print(f"  Agent Eval: task={config.task}  model={config.model}")
+    print(f"  budget=${config.max_budget_usd:.2f}  timeout={config.timeout_s}s")
+    print("=" * 60)
+
+    # --- Launch ---
+    print("\n[1/3] Launching agent...")
+    agent_run = launch_agent(config, project_root=root)
+    print(f"  Agent finished: exit_code={agent_run.exit_code}  "
+          f"wall_time={agent_run.wall_time_s:.1f}s  signal={agent_run.signal}")
+    print(f"  game.py exists: {agent_run.game_exists}")
+
+    # --- Save agent logs ---
+    (agent_run.workdir / "agent_stdout.log").write_text(
+        agent_run.stdout, encoding="utf-8"
+    )
+    (agent_run.workdir / "agent_stderr.log").write_text(
+        agent_run.stderr, encoding="utf-8"
+    )
+
+    # --- Score ---
+    print("\n[2/3] Scoring game...")
+    score = score_game(agent_run, project_root=root)
+    task_result: TaskResult = score["task_result"]
+    print(f"  succeeded: {task_result.succeeded}")
+    print(f"  replay_deterministic: {task_result.replay_deterministic}")
+    if "entity_count" in score["ground_truth"]:
+        print(f"  entity_count: {score['ground_truth']['entity_count']}")
+
+    # --- Build report ---
+    report = {
+        "agent_meta": {
+            "task": config.task,
+            "model": config.model,
+            "max_budget_usd": config.max_budget_usd,
+            "wall_time_s": agent_run.wall_time_s,
+            "exit_code": agent_run.exit_code,
+            "signal": agent_run.signal,
+        },
+        "task_result": asdict(task_result),
+        "ground_truth": score["ground_truth"],
+    }
+
+    # --- Save report ---
+    report_path = root / "eval_agent_report.json"
+    report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
+
+    # --- Verdict ---
+    print("\n[3/3] Verdict")
+    if task_result.fully_succeeded:
+        verdict = "PASS"
+    elif task_result.succeeded:
+        verdict = "PARTIAL"
+    else:
+        verdict = "FAIL"
+    print(f"  >>> {verdict} <<<")
+    print(f"  Report saved to: {report_path}")
+    print("=" * 60)
+
+    return report
