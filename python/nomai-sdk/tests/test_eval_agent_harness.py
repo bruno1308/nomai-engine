@@ -7,6 +7,7 @@ score_game scoring logic, and run_agent_eval integration.
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 from pathlib import Path
@@ -423,3 +424,115 @@ class TestRunAgentEval:
         assert report["task_result"]["succeeded"] is True
         # Verify report was saved
         assert (tmp_path / "eval_agent_report.json").exists()
+
+
+# ---------------------------------------------------------------------------
+# score_game — LLM-judged deep scoring
+# ---------------------------------------------------------------------------
+
+class TestScoreGameDeepScoring:
+    """Tests for LLM-judged deep scoring in score_game."""
+
+    def _make_snapshot_dict(self) -> dict:
+        return {
+            "schema_version": 1, "tick": 300, "sim_time": 5.0,
+            "entities": [
+                {"entity_id": 1, "entity_type": "character", "role": "paddle",
+                 "tier": "Foreground", "position": [400.0, 560.0],
+                 "size": [100.0, 15.0], "velocity": None, "visible": True,
+                 "z_index": 0.0, "components": {}},
+                {"entity_id": 2, "entity_type": "projectile", "role": "ball",
+                 "tier": "Foreground", "position": [350.0, 200.0],
+                 "size": [8.0, 8.0], "velocity": [200.0, -300.0], "visible": True,
+                 "z_index": 0.0, "components": {}},
+            ],
+            "bounds": {"min_x": 0, "min_y": 0, "max_x": 800, "max_y": 600},
+            "entity_count": 2,
+        }
+
+    def _make_run(self, workdir, exit_code=0):
+        return AgentRun(
+            config=AgentConfig(task="breakout"),
+            workdir=workdir, exit_code=exit_code,
+            wall_time_s=10.0, stdout="ENTITY_COUNT: 2", stderr="",
+        )
+
+    @patch("nomai.eval.agent_harness._run_game_script")
+    def test_no_snapshot_returns_null_llm_scores(self, mock_run_script, tmp_path):
+        """When snapshot.json is missing, llm_scores should be None."""
+        (tmp_path / "game.py").write_text("print('ENTITY_COUNT: 2')")
+        mock_run_script.return_value = MagicMock(returncode=0, stdout="ENTITY_COUNT: 2", stderr="")
+        run = self._make_run(tmp_path)
+        result = score_game(run, project_root=tmp_path, judge_model="sonnet")
+        assert result["llm_scores"] is None
+
+    @patch("nomai.eval.agent_harness._run_game_script")
+    def test_no_judge_model_returns_null_llm_scores(self, mock_run_script, tmp_path):
+        """When judge_model is None, llm_scores should be None even if snapshot exists."""
+        (tmp_path / "game.py").write_text("print('ENTITY_COUNT: 2')")
+        (tmp_path / "snapshot.json").write_text(json.dumps(self._make_snapshot_dict()))
+        mock_run_script.return_value = MagicMock(returncode=0, stdout="ENTITY_COUNT: 2", stderr="")
+        run = self._make_run(tmp_path)
+        result = score_game(run, project_root=tmp_path)
+        assert result["llm_scores"] is None
+
+    @patch("nomai.eval.agent_harness.multihop_spatial_accuracy")
+    @patch("nomai.eval.agent_harness.geval_all")
+    @patch("nomai.eval.agent_harness.scene_qa_accuracy")
+    @patch("nomai.eval.agent_harness.generate_spatial_questions")
+    @patch("nomai.eval.agent_harness.generate_scene_questions")
+    @patch("nomai.eval.agent_harness.ClaudeCodeLLMClient")
+    @patch("nomai.eval.agent_harness._run_game_script")
+    def test_deep_scoring_runs_all_three_dimensions(
+        self, mock_run_script, mock_llm_cls, mock_gen_scene_q,
+        mock_gen_spatial_q, mock_scene_qa, mock_geval, mock_multihop, tmp_path,
+    ):
+        """When snapshot.json exists and judge_model is set, run all three scorers."""
+        from nomai.eval.metrics import EvalDimension, MetricResult
+
+        (tmp_path / "game.py").write_text("print('ENTITY_COUNT: 2')")
+        (tmp_path / "snapshot.json").write_text(json.dumps(self._make_snapshot_dict()))
+        mock_run_script.return_value = MagicMock(returncode=0, stdout="ENTITY_COUNT: 2", stderr="")
+
+        mock_llm = MagicMock()
+        mock_llm_cls.return_value = mock_llm
+
+        mock_gen_scene_q.return_value = []
+        mock_scene_qa.return_value = MetricResult(
+            name="scene_qa_accuracy", dimension=EvalDimension.OBSERVABILITY,
+            value=0.85, target=0.8, passed=True, detail="17/20 correct",
+        )
+
+        mock_geval.return_value = [
+            MetricResult(name=f"geval_{c}", dimension=EvalDimension.VERIFICATION,
+                         value=v, target=None, passed=True, detail=f"{c} score")
+            for c, v in [("completeness", 0.75), ("clarity", 0.80),
+                         ("spatial_accuracy", 0.70), ("actionability", 0.65)]
+        ]
+
+        mock_gen_spatial_q.return_value = []
+        mock_multihop.return_value = MetricResult(
+            name="multihop_spatial_accuracy", dimension=EvalDimension.OBSERVABILITY,
+            value=0.60, target=None, passed=True, detail="3/5 correct",
+        )
+
+        run = self._make_run(tmp_path)
+        result = score_game(run, project_root=tmp_path, judge_model="sonnet")
+
+        assert result["llm_scores"] is not None
+        scores = result["llm_scores"]
+        assert scores["judge_model"] == "sonnet"
+        assert scores["scene_qa_accuracy"] == 0.85
+        assert scores["geval_completeness"] == 0.75
+        assert scores["geval_clarity"] == 0.80
+        assert scores["geval_spatial_accuracy"] == 0.70
+        assert scores["geval_actionability"] == 0.65
+        assert scores["multihop_spatial_accuracy"] == 0.60
+        mock_llm_cls.assert_called_once_with(model="sonnet")
+
+    def test_early_return_no_game_has_llm_scores_none(self, tmp_path):
+        """Early return when game.py missing should include llm_scores=None."""
+        run = self._make_run(tmp_path)
+        result = score_game(run, project_root=tmp_path, judge_model="sonnet")
+        assert "llm_scores" in result
+        assert result["llm_scores"] is None

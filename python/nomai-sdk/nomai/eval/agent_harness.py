@@ -21,6 +21,14 @@ from datetime import datetime
 from pathlib import Path
 
 from nomai.eval.autonomy import TaskResult
+from nomai.eval.llm_client import ClaudeCodeLLMClient
+from nomai.eval.reasoning import (
+    geval_all,
+    generate_spatial_questions,
+    multihop_spatial_accuracy,
+)
+from nomai.eval.scene_qa import generate_scene_questions, scene_qa_accuracy
+from nomai.scene import SceneSnapshot
 
 logger = logging.getLogger(__name__)
 
@@ -289,7 +297,7 @@ def _parse_entity_count(stdout: str) -> int:
 # score_game
 # ---------------------------------------------------------------------------
 
-def score_game(run: AgentRun, *, project_root: Path | None = None) -> dict:
+def score_game(run: AgentRun, *, project_root: Path | None = None, judge_model: str | None = None) -> dict:
     """Run the agent's game.py and produce a scored TaskResult.
 
     Executes the game script twice: the first run checks for basic correctness
@@ -315,6 +323,7 @@ def score_game(run: AgentRun, *, project_root: Path | None = None) -> dict:
             ),
             "eval_report": None,
             "ground_truth": {"error": "game.py not found"},
+            "llm_scores": None,
         }
 
     # First run
@@ -328,6 +337,7 @@ def score_game(run: AgentRun, *, project_root: Path | None = None) -> dict:
             ),
             "eval_report": None,
             "ground_truth": {"error": "game.py timed out"},
+            "llm_scores": None,
         }
 
     if result1.returncode != 0:
@@ -342,6 +352,7 @@ def score_game(run: AgentRun, *, project_root: Path | None = None) -> dict:
                 "exit_code": result1.returncode,
                 "stderr": result1.stderr,
             },
+            "llm_scores": None,
         }
 
     # Second run — determinism check
@@ -366,6 +377,37 @@ def score_game(run: AgentRun, *, project_root: Path | None = None) -> dict:
         replay_deterministic=replay_deterministic,
     )
 
+    # --- LLM-judged deep scoring ---
+    llm_scores = None
+    snapshot_path = run.workdir / "snapshot.json"
+    if snapshot_path.exists() and judge_model:
+        try:
+            snapshot_data = json.loads(snapshot_path.read_text(encoding="utf-8"))
+            snapshot = SceneSnapshot.from_dict(snapshot_data)
+            llm = ClaudeCodeLLMClient(model=judge_model)
+
+            # Scene QA (Tier 2)
+            scene_questions = generate_scene_questions(snapshot)
+            scene_qa_result = scene_qa_accuracy(snapshot, scene_questions, llm)
+
+            # G-Eval (Tier 3)
+            geval_results = geval_all(snapshot, llm)
+
+            # Multi-hop spatial (Tier 3)
+            spatial_questions = generate_spatial_questions(snapshot)
+            multihop_result = multihop_spatial_accuracy(snapshot, spatial_questions, llm)
+
+            llm_scores = {
+                "judge_model": judge_model,
+                "scene_qa_accuracy": scene_qa_result.value,
+            }
+            for gr in geval_results:
+                llm_scores[gr.name] = gr.value
+            llm_scores["multihop_spatial_accuracy"] = multihop_result.value
+
+        except Exception:
+            logger.exception("Deep scoring failed — continuing with basic score")
+
     return {
         "task_result": task_result,
         "eval_report": None,
@@ -374,6 +416,7 @@ def score_game(run: AgentRun, *, project_root: Path | None = None) -> dict:
             "replay_deterministic": replay_deterministic,
             "stdout_hash": hashlib.sha256(result1.stdout.encode()).hexdigest(),
         },
+        "llm_scores": llm_scores,
     }
 
 
