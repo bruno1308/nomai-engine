@@ -1,0 +1,145 @@
+{
+  "game": "prism_pop",
+  "score": 3100,
+  "swaps_accepted": 3,
+  "swaps_rejected": 17,
+  "ticks": 20,
+  "verification": {
+    "suite_name": "prism_pop_verification",
+    "total_intents": 14,
+    "passed": 14,
+    "failed": 0,
+    "results": [
+      {
+        "intent_name": "grid_exists",
+        "passed": true,
+        "failure_reason": "",
+        "trigger_tick": null,
+        "evidence": [],
+        "causal_chain": null,
+        "suggestion": ""
+      },
+      {
+        "intent_name": "tile_exists",
+        "passed": true,
+        "failure_reason": "",
+        "trigger_tick": null,
+        "evidence": [],
+        "causal_chain": null,
+        "suggestion": ""
+      },
+      {
+        "intent_name": "score_exists",
+        "passed": true,
+        "failure_reason": "",
+        "trigger_tick": null,
+        "evidence": [],
+        "causal_chain": null,
+        "suggestion": ""
+      },
+      {
+        "intent_name": "tile_x_bounds",
+        "passed": true,
+        "failure_reason": "",
+        "trigger_tick": null,
+        "evidence": [],
+        "causal_chain": null,
+        "suggestion": ""
+      },
+      {
+        "intent_name": "tile_y_bounds",
+        "passed": true,
+        "failure_reason": "",
+        "trigger_tick": null,
+        "evidence": [],
+        "causal_chain": null,
+        "suggestion": ""
+      },
+      {
+        "intent_name": "invariant_grid_always_full",
+        "passed": true,
+        "failure_reason": "",
+        "trigger_tick": null,
+        "evidence": [],
+        "causal_chain": null,
+        "suggestion": "This invariant uses a free-form condition string that is not evaluated in the spike. Convert to a structured condition (aggregate:, entity_count, or component_range:) for full evaluation."
+      },
+      {
+        "intent_name": "invariant_score_non_negative",
+        "passed": true,
+        "failure_reason": "",
+        "trigger_tick": null,
+        "evidence": [],
+        "causal_chain": null,
+        "suggestion": "This invariant uses a free-form condition string that is not evaluated in the spike. Convert to a structured condition (aggregate:, entity_count, or component_range:) for full evaluation."
+      },
+      {
+        "intent_name": "invariant_score_monotonic",
+        "passed": true,
+        "failure_reason": "",
+        "trigger_tick": null,
+        "evidence": [],
+        "causal_chain": null,
+        "suggestion": "This invariant uses a free-form condition string that is not evaluated in the spike. Convert to a structured condition (aggregate:, entity_count, or component_range:) for full evaluation."
+      },
+      {
+        "intent_name": "invariant_tile_type_valid",
+        "passed": true,
+        "failure_reason": "",
+        "trigger_tick": null,
+        "evidence": [],
+        "causal_chain": null,
+        "suggestion": ""
+      },
+      {
+        "intent_name": "invariant_tile_within_grid",
+        "passed": true,
+        "failure_reason": "",
+        "trigger_tick": null,
+        "evidence": [],
+        "causal_chain": null,
+        "suggestion": "This invariant uses a free-form condition string that is not evaluated in the spike. Convert to a structured condition (aggregate:, entity_count, or component_range:) for full evaluation."
+      },
+      {
+        "intent_name": "invariant_tile_within_grid_y",
+        "passed": true,
+        "failure_reason": "",
+        "trigger_tick": null,
+        "evidence": [],
+        "causal_chain": null,
+        "suggestion": "This invariant uses a free-form condition string that is not evaluated in the spike. Convert to a structured condition (aggregate:, entity_count, or component_range:) for full evaluation."
+      },
+      {
+        "intent_name": "degenerate_no_valid_moves",
+        "passed": true,
+        "failure_reason": "",
+        "trigger_tick": null,
+        "evidence": [],
+        "causal_chain": null,
+        "suggestion": "This invariant uses a free-form condition string that is not evaluated in the spike. Convert to a structured condition (aggregate:, entity_count, or component_range:) for full evaluation."
+      },
+      {
+        "intent_name": "degenerate_score_overflow",
+        "passed": true,
+        "failure_reason": "",
+        "trigger_tick": null,
+        "evidence": [],
+        "causal_chain": null,
+        "suggestion": "This invariant uses a free-form condition string that is not evaluated in the spike. Convert to a structured condition (aggregate:, entity_count, or component_range:) for full evaluation."
+      },
+      {
+        "intent_name": "degenerate_infinite_cascade",
+        "passed": true,
+        "failure_reason": "",
+        "trigger_tick": null,
+        "evidence": [],
+        "causal_chain": null,
+        "suggestion": "This invariant uses a free-form condition string that is not evaluated in the spike. Convert to a structured condition (aggregate:, entity_count, or component_range:) for full evaluation."
+      }
+    ],
+    "wall_time_ms": 1.0864000068977475,
+    "ticks_examined": 20,
+    "all_passed": true
+  },
+  "regression": "PASS"
+}

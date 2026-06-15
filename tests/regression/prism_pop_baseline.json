@@ -1,0 +1,6432 @@
+{
+  "name": "prism_pop_baseline",
+  "suite": {
+    "name": "prism_pop_verification",
+    "description": "Auto-generated verification suite for Prism Pop",
+    "intents": [
+      {
+        "name": "grid_exists",
+        "kind": "entity",
+        "description": "Entity 'grid' must exist with required components",
+        "entity_type": "container",
+        "entity_role": "grid",
+        "must_exist": true,
+        "must_be_visible": true,
+        "required_components": [
+          "position",
+          "size"
+        ]
+      },
+      {
+        "name": "tile_exists",
+        "kind": "entity",
+        "description": "Entity 'tile' must exist with required components",
+        "entity_type": "tile",
+        "entity_role": "tile",
+        "must_exist": true,
+        "must_be_visible": true,
+        "required_components": [
+          "position",
+          "size",
+          "tile_type"
+        ]
+      },
+      {
+        "name": "score_exists",
+        "kind": "entity",
+        "description": "Entity 'score' must exist with required components",
+        "entity_type": "ui",
+        "entity_role": "score",
+        "must_exist": true,
+        "must_be_visible": true,
+        "required_components": [
+          "position",
+          "score_value"
+        ]
+      },
+      {
+        "name": "tile_x_bounds",
+        "kind": "invariant",
+        "description": "Entity 'tile' x-position must stay within [0.0, 7.0]",
+        "condition": "component_range:tile.position.x in [0.0, 7.0]"
+      },
+      {
+        "name": "tile_y_bounds",
+        "kind": "invariant",
+        "description": "Entity 'tile' y-position must stay within [0.0, 7.0]",
+        "condition": "component_range:tile.position.y in [0.0, 7.0]"
+      },
+      {
+        "name": "invariant_grid_always_full",
+        "kind": "invariant",
+        "description": "The 8x8 grid must always have exactly 64 tiles after gravity fill completes.",
+        "condition": "== 64"
+      },
+      {
+        "name": "invariant_score_non_negative",
+        "kind": "invariant",
+        "description": "Score must never be negative.",
+        "condition": ">= 0"
+      },
+      {
+        "name": "invariant_score_monotonic",
+        "kind": "invariant",
+        "description": "Score can only increase, never decrease.",
+        "condition": "monotonic_increasing"
+      },
+      {
+        "name": "invariant_tile_type_valid",
+        "kind": "invariant",
+        "description": "Tile type must be one of 5 valid jewel types (0=Ruby, 1=Sapphire, 2=Emerald, 3=Topaz, 4=Amethyst).",
+        "condition": "component_range:tile.tile_type.type_id in [0, 4]"
+      },
+      {
+        "name": "invariant_tile_within_grid",
+        "kind": "invariant",
+        "description": "Tile grid x-position must be within 0-7.",
+        "condition": ">= 0 and <= 7"
+      },
+      {
+        "name": "invariant_tile_within_grid_y",
+        "kind": "invariant",
+        "description": "Tile grid y-position must be within 0-7.",
+        "condition": ">= 0 and <= 7"
+      },
+      {
+        "name": "degenerate_no_valid_moves",
+        "kind": "invariant",
+        "description": "No valid swaps exist on the board. The grid should be reshuffled to prevent a deadlocked state.",
+        "condition": "degenerate_guard:grid.state.valid_moves_count must_not == 0"
+      },
+      {
+        "name": "degenerate_score_overflow",
+        "kind": "invariant",
+        "description": "Score exceeds the maximum displayable value.",
+        "condition": "degenerate_guard:score.score_value.points must_not > 99999"
+      },
+      {
+        "name": "degenerate_infinite_cascade",
+        "kind": "invariant",
+        "description": "A match cascade exceeds 20 steps, suggesting an infinite loop in match/fill logic.",
+        "condition": "degenerate_guard:grid.state.cascade_depth must_not > 20"
+      }
+    ]
+  },
+  "manifests": [
+    {
+      "tick": 1,
+      "sim_time": 0.016666666666666666,
+      "entity_spawns": [],
+      "entity_despawns": [],
+      "component_changes": [],
+      "events": [],
+      "aggregates": {
+        "entity_count_by_tier": {
+          "Semantic": 66
+        },
+        "entity_count_by_type": {
+          "ui": 1,
+          "tile": 64,
+          "container": 1
+        },
+        "total_entity_count": 66,
+        "custom": {}
+      },
+      "systems_executed": [],
+      "commands_processed": 0,
+      "commands_succeeded": 0
+    },
+    {
+      "tick": 2,
+      "sim_time": 0.03333333333333333,
+      "entity_spawns": [],
+      "entity_despawns": [],
+      "component_changes": [],
+      "events": [],
+      "aggregates": {
+        "entity_count_by_tier": {
+          "Semantic": 66
+        },
+        "entity_count_by_type": {
+          "ui": 1,
+          "tile": 64,
+          "container": 1
+        },
+        "total_entity_count": 66,
+        "custom": {}
+      },
+      "systems_executed": [],
+      "commands_processed": 0,
+      "commands_succeeded": 0
+    },
+    {
+      "tick": 3,
+      "sim_time": 0.05,
+      "entity_spawns": [],
+      "entity_despawns": [],
+      "component_changes": [],
+      "events": [],
+      "aggregates": {
+        "entity_count_by_tier": {
+          "Semantic": 66
+        },
+        "entity_count_by_type": {
+          "container": 1,
+          "ui": 1,
+          "tile": 64
+        },
+        "total_entity_count": 66,
+        "custom": {}
+      },
+      "systems_executed": [],
+      "commands_processed": 0,
+      "commands_succeeded": 0
+    },
+    {
+      "tick": 4,
+      "sim_time": 0.06666666666666667,
+      "entity_spawns": [],
+      "entity_despawns": [],
+      "component_changes": [],
+      "events": [],
+      "aggregates": {
+        "entity_count_by_tier": {
+          "Semantic": 66
+        },
+        "entity_count_by_type": {
+          "tile": 64,
+          "ui": 1,
+          "container": 1
+        },
+        "total_entity_count": 66,
+        "custom": {}
+      },
+      "systems_executed": [],
+      "commands_processed": 0,
+      "commands_succeeded": 0
+    },
+    {
+      "tick": 5,
+      "sim_time": 0.08333333333333333,
+      "entity_spawns": [],
+      "entity_despawns": [],
+      "component_changes": [],
+      "events": [],
+      "aggregates": {
+        "entity_count_by_tier": {
+          "Semantic": 66
+        },
+        "entity_count_by_type": {
+          "tile": 64,
+          "ui": 1,
+          "container": 1
+        },
+        "total_entity_count": 66,
+        "custom": {}
+      },
+      "systems_executed": [],
+      "commands_processed": 0,
+      "commands_succeeded": 0
+    },
+    {
+      "tick": 6,
+      "sim_time": 0.1,
+      "entity_spawns": [],
+      "entity_despawns": [],
+      "component_changes": [],
+      "events": [],
+      "aggregates": {
+        "entity_count_by_tier": {
+          "Semantic": 66
+        },
+        "entity_count_by_type": {
+          "ui": 1,
+          "container": 1,
+          "tile": 64
+        },
+        "total_entity_count": 66,
+        "custom": {}
+      },
+      "systems_executed": [],
+      "commands_processed": 0,
+      "commands_succeeded": 0
+    },
+    {
+      "tick": 7,
+      "sim_time": 0.11666666666666667,
+      "entity_spawns": [],
+      "entity_despawns": [],
+      "component_changes": [],
+      "events": [],
+      "aggregates": {
+        "entity_count_by_tier": {
+          "Semantic": 66
+        },
+        "entity_count_by_type": {
+          "container": 1,
+          "tile": 64,
+          "ui": 1
+        },
+        "total_entity_count": 66,
+        "custom": {}
+      },
+      "systems_executed": [],
+      "commands_processed": 0,
+      "commands_succeeded": 0
+    },
+    {
+      "tick": 8,
+      "sim_time": 0.13333333333333333,
+      "entity_spawns": [],
+      "entity_despawns": [],
+      "component_changes": [],
+      "events": [],
+      "aggregates": {
+        "entity_count_by_tier": {
+          "Semantic": 66
+        },
+        "entity_count_by_type": {
+          "tile": 64,
+          "ui": 1,
+          "container": 1
+        },
+        "total_entity_count": 66,
+        "custom": {}
+      },
+      "systems_executed": [],
+      "commands_processed": 0,
+      "commands_succeeded": 0
+    },
+    {
+      "tick": 9,
+      "sim_time": 0.15,
+      "entity_spawns": [],
+      "entity_despawns": [],
+      "component_changes": [],
+      "events": [],
+      "aggregates": {
+        "entity_count_by_tier": {
+          "Semantic": 66
+        },
+        "entity_count_by_type": {
+          "ui": 1,
+          "tile": 64,
+          "container": 1
+        },
+        "total_entity_count": 66,
+        "custom": {}
+      },
+      "systems_executed": [],
+      "commands_processed": 0,
+      "commands_succeeded": 0
+    },
+    {
+      "tick": 10,
+      "sim_time": 0.16666666666666666,
+      "entity_spawns": [],
+      "entity_despawns": [],
+      "component_changes": [],
+      "events": [],
+      "aggregates": {
+        "entity_count_by_tier": {
+          "Semantic": 66
+        },
+        "entity_count_by_type": {
+          "container": 1,
+          "tile": 64,
+          "ui": 1
+        },
+        "total_entity_count": 66,
+        "custom": {}
+      },
+      "systems_executed": [],
+      "commands_processed": 0,
+      "commands_succeeded": 0
+    },
+    {
+      "tick": 11,
+      "sim_time": 0.18333333333333332,
+      "entity_spawns": [],
+      "entity_despawns": [],
+      "component_changes": [],
+      "events": [],
+      "aggregates": {
+        "entity_count_by_tier": {
+          "Semantic": 66
+        },
+        "entity_count_by_type": {
+          "container": 1,
+          "tile": 64,
+          "ui": 1
+        },
+        "total_entity_count": 66,
+        "custom": {}
+      },
+      "systems_executed": [],
+      "commands_processed": 0,
+      "commands_succeeded": 0
+    },
+    {
+      "tick": 12,
+      "sim_time": 0.2,
+      "entity_spawns": [],
+      "entity_despawns": [],
+      "component_changes": [
+        {
+          "entity_id": 1,
+          "component_type_name": "score_value",
+          "old_value": null,
+          "new_value": {
+            "points": 500
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 0,
+          "tick": 12
+        },
+        {
+          "entity_id": 2,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "ruby",
+            "type_id": 0
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 1,
+          "tick": 12
+        },
+        {
+          "entity_id": 2,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 0,
+            "y": 0
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 2,
+          "tick": 12
+        },
+        {
+          "entity_id": 3,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "ruby",
+            "type_id": 0
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 3,
+          "tick": 12
+        },
+        {
+          "entity_id": 3,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 1,
+            "y": 0
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 4,
+          "tick": 12
+        },
+        {
+          "entity_id": 4,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "emerald",
+            "type_id": 2
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 5,
+          "tick": 12
+        },
+        {
+          "entity_id": 4,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 2,
+            "y": 0
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 6,
+          "tick": 12
+        },
+        {
+          "entity_id": 5,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "sapphire",
+            "type_id": 1
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 7,
+          "tick": 12
+        },
+        {
+          "entity_id": 5,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 3,
+            "y": 0
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 8,
+          "tick": 12
+        },
+        {
+          "entity_id": 6,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "emerald",
+            "type_id": 2
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 9,
+          "tick": 12
+        },
+        {
+          "entity_id": 6,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 4,
+            "y": 0
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 10,
+          "tick": 12
+        },
+        {
+          "entity_id": 7,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "emerald",
+            "type_id": 2
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 11,
+          "tick": 12
+        },
+        {
+          "entity_id": 7,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 5,
+            "y": 0
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 12,
+          "tick": 12
+        },
+        {
+          "entity_id": 8,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "ruby",
+            "type_id": 0
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 13,
+          "tick": 12
+        },
+        {
+          "entity_id": 8,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 6,
+            "y": 0
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 14,
+          "tick": 12
+        },
+        {
+          "entity_id": 9,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "amethyst",
+            "type_id": 4
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 15,
+          "tick": 12
+        },
+        {
+          "entity_id": 9,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 7,
+            "y": 0
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 16,
+          "tick": 12
+        },
+        {
+          "entity_id": 10,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "ruby",
+            "type_id": 0
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 17,
+          "tick": 12
+        },
+        {
+          "entity_id": 10,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 0,
+            "y": 1
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 18,
+          "tick": 12
+        },
+        {
+          "entity_id": 11,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "amethyst",
+            "type_id": 4
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 19,
+          "tick": 12
+        },
+        {
+          "entity_id": 11,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 1,
+            "y": 1
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 20,
+          "tick": 12
+        },
+        {
+          "entity_id": 12,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "topaz",
+            "type_id": 3
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 21,
+          "tick": 12
+        },
+        {
+          "entity_id": 12,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 2,
+            "y": 1
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 22,
+          "tick": 12
+        },
+        {
+          "entity_id": 13,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "ruby",
+            "type_id": 0
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 23,
+          "tick": 12
+        },
+        {
+          "entity_id": 13,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 3,
+            "y": 1
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 24,
+          "tick": 12
+        },
+        {
+          "entity_id": 14,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "sapphire",
+            "type_id": 1
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 25,
+          "tick": 12
+        },
+        {
+          "entity_id": 14,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 4,
+            "y": 1
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 26,
+          "tick": 12
+        },
+        {
+          "entity_id": 15,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "ruby",
+            "type_id": 0
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 27,
+          "tick": 12
+        },
+        {
+          "entity_id": 15,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 5,
+            "y": 1
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 28,
+          "tick": 12
+        },
+        {
+          "entity_id": 16,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "sapphire",
+            "type_id": 1
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 29,
+          "tick": 12
+        },
+        {
+          "entity_id": 16,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 6,
+            "y": 1
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 30,
+          "tick": 12
+        },
+        {
+          "entity_id": 17,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "emerald",
+            "type_id": 2
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 31,
+          "tick": 12
+        },
+        {
+          "entity_id": 17,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 7,
+            "y": 1
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 32,
+          "tick": 12
+        },
+        {
+          "entity_id": 18,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "amethyst",
+            "type_id": 4
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 33,
+          "tick": 12
+        },
+        {
+          "entity_id": 18,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 0,
+            "y": 2
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 34,
+          "tick": 12
+        },
+        {
+          "entity_id": 19,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "amethyst",
+            "type_id": 4
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 35,
+          "tick": 12
+        },
+        {
+          "entity_id": 19,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 1,
+            "y": 2
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 36,
+          "tick": 12
+        },
+        {
+          "entity_id": 20,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "ruby",
+            "type_id": 0
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 37,
+          "tick": 12
+        },
+        {
+          "entity_id": 20,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 2,
+            "y": 2
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 38,
+          "tick": 12
+        },
+        {
+          "entity_id": 21,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "amethyst",
+            "type_id": 4
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 39,
+          "tick": 12
+        },
+        {
+          "entity_id": 21,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 3,
+            "y": 2
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 40,
+          "tick": 12
+        },
+        {
+          "entity_id": 22,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "emerald",
+            "type_id": 2
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 41,
+          "tick": 12
+        },
+        {
+          "entity_id": 22,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 4,
+            "y": 2
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 42,
+          "tick": 12
+        },
+        {
+          "entity_id": 23,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "amethyst",
+            "type_id": 4
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 43,
+          "tick": 12
+        },
+        {
+          "entity_id": 23,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 5,
+            "y": 2
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 44,
+          "tick": 12
+        },
+        {
+          "entity_id": 24,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "topaz",
+            "type_id": 3
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 45,
+          "tick": 12
+        },
+        {
+          "entity_id": 24,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 6,
+            "y": 2
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 46,
+          "tick": 12
+        },
+        {
+          "entity_id": 25,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "sapphire",
+            "type_id": 1
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 47,
+          "tick": 12
+        },
+        {
+          "entity_id": 25,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 7,
+            "y": 2
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 48,
+          "tick": 12
+        },
+        {
+          "entity_id": 26,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "topaz",
+            "type_id": 3
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 49,
+          "tick": 12
+        },
+        {
+          "entity_id": 26,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 0,
+            "y": 3
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 50,
+          "tick": 12
+        },
+        {
+          "entity_id": 27,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "ruby",
+            "type_id": 0
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 51,
+          "tick": 12
+        },
+        {
+          "entity_id": 27,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 1,
+            "y": 3
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 52,
+          "tick": 12
+        },
+        {
+          "entity_id": 28,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "emerald",
+            "type_id": 2
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 53,
+          "tick": 12
+        },
+        {
+          "entity_id": 28,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 2,
+            "y": 3
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 54,
+          "tick": 12
+        },
+        {
+          "entity_id": 29,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "ruby",
+            "type_id": 0
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 55,
+          "tick": 12
+        },
+        {
+          "entity_id": 29,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 3,
+            "y": 3
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 56,
+          "tick": 12
+        },
+        {
+          "entity_id": 30,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "topaz",
+            "type_id": 3
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 57,
+          "tick": 12
+        },
+        {
+          "entity_id": 30,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 4,
+            "y": 3
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 58,
+          "tick": 12
+        },
+        {
+          "entity_id": 31,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "topaz",
+            "type_id": 3
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 59,
+          "tick": 12
+        },
+        {
+          "entity_id": 31,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 5,
+            "y": 3
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 60,
+          "tick": 12
+        },
+        {
+          "entity_id": 32,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "emerald",
+            "type_id": 2
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 61,
+          "tick": 12
+        },
+        {
+          "entity_id": 32,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 6,
+            "y": 3
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 62,
+          "tick": 12
+        },
+        {
+          "entity_id": 33,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "emerald",
+            "type_id": 2
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 63,
+          "tick": 12
+        },
+        {
+          "entity_id": 33,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 7,
+            "y": 3
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 64,
+          "tick": 12
+        },
+        {
+          "entity_id": 34,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "sapphire",
+            "type_id": 1
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 65,
+          "tick": 12
+        },
+        {
+          "entity_id": 34,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 0,
+            "y": 4
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 66,
+          "tick": 12
+        },
+        {
+          "entity_id": 35,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "sapphire",
+            "type_id": 1
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 67,
+          "tick": 12
+        },
+        {
+          "entity_id": 35,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 1,
+            "y": 4
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 68,
+          "tick": 12
+        },
+        {
+          "entity_id": 36,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "emerald",
+            "type_id": 2
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 69,
+          "tick": 12
+        },
+        {
+          "entity_id": 36,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 2,
+            "y": 4
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 70,
+          "tick": 12
+        },
+        {
+          "entity_id": 37,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "ruby",
+            "type_id": 0
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 71,
+          "tick": 12
+        },
+        {
+          "entity_id": 37,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 3,
+            "y": 4
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 72,
+          "tick": 12
+        },
+        {
+          "entity_id": 38,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "ruby",
+            "type_id": 0
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 73,
+          "tick": 12
+        },
+        {
+          "entity_id": 38,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 4,
+            "y": 4
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 74,
+          "tick": 12
+        },
+        {
+          "entity_id": 39,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "topaz",
+            "type_id": 3
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 75,
+          "tick": 12
+        },
+        {
+          "entity_id": 39,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 5,
+            "y": 4
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 76,
+          "tick": 12
+        },
+        {
+          "entity_id": 40,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "ruby",
+            "type_id": 0
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 77,
+          "tick": 12
+        },
+        {
+          "entity_id": 40,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 6,
+            "y": 4
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 78,
+          "tick": 12
+        },
+        {
+          "entity_id": 41,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "emerald",
+            "type_id": 2
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 79,
+          "tick": 12
+        },
+        {
+          "entity_id": 41,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 7,
+            "y": 4
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 80,
+          "tick": 12
+        },
+        {
+          "entity_id": 42,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "emerald",
+            "type_id": 2
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 81,
+          "tick": 12
+        },
+        {
+          "entity_id": 42,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 0,
+            "y": 5
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 82,
+          "tick": 12
+        },
+        {
+          "entity_id": 43,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "amethyst",
+            "type_id": 4
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 83,
+          "tick": 12
+        },
+        {
+          "entity_id": 43,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 1,
+            "y": 5
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 84,
+          "tick": 12
+        },
+        {
+          "entity_id": 44,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "topaz",
+            "type_id": 3
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 85,
+          "tick": 12
+        },
+        {
+          "entity_id": 44,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 2,
+            "y": 5
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 86,
+          "tick": 12
+        },
+        {
+          "entity_id": 45,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "sapphire",
+            "type_id": 1
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 87,
+          "tick": 12
+        },
+        {
+          "entity_id": 45,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 3,
+            "y": 5
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 88,
+          "tick": 12
+        },
+        {
+          "entity_id": 46,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "topaz",
+            "type_id": 3
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 89,
+          "tick": 12
+        },
+        {
+          "entity_id": 46,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 4,
+            "y": 5
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 90,
+          "tick": 12
+        },
+        {
+          "entity_id": 47,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "amethyst",
+            "type_id": 4
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 91,
+          "tick": 12
+        },
+        {
+          "entity_id": 47,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 5,
+            "y": 5
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 92,
+          "tick": 12
+        },
+        {
+          "entity_id": 48,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "ruby",
+            "type_id": 0
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 93,
+          "tick": 12
+        },
+        {
+          "entity_id": 48,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 6,
+            "y": 5
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 94,
+          "tick": 12
+        },
+        {
+          "entity_id": 49,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "topaz",
+            "type_id": 3
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 95,
+          "tick": 12
+        },
+        {
+          "entity_id": 49,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 7,
+            "y": 5
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 96,
+          "tick": 12
+        },
+        {
+          "entity_id": 50,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "ruby",
+            "type_id": 0
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 97,
+          "tick": 12
+        },
+        {
+          "entity_id": 50,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 0,
+            "y": 6
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 98,
+          "tick": 12
+        },
+        {
+          "entity_id": 51,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "amethyst",
+            "type_id": 4
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 99,
+          "tick": 12
+        },
+        {
+          "entity_id": 51,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 1,
+            "y": 6
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 100,
+          "tick": 12
+        },
+        {
+          "entity_id": 52,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "emerald",
+            "type_id": 2
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 101,
+          "tick": 12
+        },
+        {
+          "entity_id": 52,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 2,
+            "y": 6
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 102,
+          "tick": 12
+        },
+        {
+          "entity_id": 53,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "amethyst",
+            "type_id": 4
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 103,
+          "tick": 12
+        },
+        {
+          "entity_id": 53,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 3,
+            "y": 6
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 104,
+          "tick": 12
+        },
+        {
+          "entity_id": 54,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "emerald",
+            "type_id": 2
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 105,
+          "tick": 12
+        },
+        {
+          "entity_id": 54,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 4,
+            "y": 6
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 106,
+          "tick": 12
+        },
+        {
+          "entity_id": 55,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "amethyst",
+            "type_id": 4
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 107,
+          "tick": 12
+        },
+        {
+          "entity_id": 55,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 5,
+            "y": 6
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 108,
+          "tick": 12
+        },
+        {
+          "entity_id": 56,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "sapphire",
+            "type_id": 1
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 109,
+          "tick": 12
+        },
+        {
+          "entity_id": 56,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 6,
+            "y": 6
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 110,
+          "tick": 12
+        },
+        {
+          "entity_id": 57,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "ruby",
+            "type_id": 0
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 111,
+          "tick": 12
+        },
+        {
+          "entity_id": 57,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 7,
+            "y": 6
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 112,
+          "tick": 12
+        },
+        {
+          "entity_id": 58,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "ruby",
+            "type_id": 0
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 113,
+          "tick": 12
+        },
+        {
+          "entity_id": 58,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 0,
+            "y": 7
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 114,
+          "tick": 12
+        },
+        {
+          "entity_id": 59,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "sapphire",
+            "type_id": 1
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 115,
+          "tick": 12
+        },
+        {
+          "entity_id": 59,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 1,
+            "y": 7
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 116,
+          "tick": 12
+        },
+        {
+          "entity_id": 60,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "emerald",
+            "type_id": 2
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 117,
+          "tick": 12
+        },
+        {
+          "entity_id": 60,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 2,
+            "y": 7
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 118,
+          "tick": 12
+        },
+        {
+          "entity_id": 61,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "ruby",
+            "type_id": 0
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 119,
+          "tick": 12
+        },
+        {
+          "entity_id": 61,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 3,
+            "y": 7
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 120,
+          "tick": 12
+        },
+        {
+          "entity_id": 62,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "sapphire",
+            "type_id": 1
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 121,
+          "tick": 12
+        },
+        {
+          "entity_id": 62,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 4,
+            "y": 7
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 122,
+          "tick": 12
+        },
+        {
+          "entity_id": 63,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "ruby",
+            "type_id": 0
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 123,
+          "tick": 12
+        },
+        {
+          "entity_id": 63,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 5,
+            "y": 7
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 124,
+          "tick": 12
+        },
+        {
+          "entity_id": 64,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "topaz",
+            "type_id": 3
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 125,
+          "tick": 12
+        },
+        {
+          "entity_id": 64,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 6,
+            "y": 7
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 126,
+          "tick": 12
+        },
+        {
+          "entity_id": 65,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "emerald",
+            "type_id": 2
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 127,
+          "tick": 12
+        },
+        {
+          "entity_id": 65,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 7,
+            "y": 7
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 128,
+          "tick": 12
+        },
+        {
+          "entity_id": 0,
+          "component_type_name": "state",
+          "old_value": null,
+          "new_value": {
+            "cascade_depth": 0,
+            "phase": 0,
+            "valid_moves_count": 13
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 129,
+          "tick": 12
+        }
+      ],
+      "events": [],
+      "aggregates": {
+        "entity_count_by_tier": {
+          "Semantic": 66
+        },
+        "entity_count_by_type": {
+          "container": 1,
+          "tile": 64,
+          "ui": 1
+        },
+        "total_entity_count": 66,
+        "custom": {}
+      },
+      "systems_executed": [],
+      "commands_processed": 130,
+      "commands_succeeded": 130
+    },
+    {
+      "tick": 13,
+      "sim_time": 0.21666666666666667,
+      "entity_spawns": [],
+      "entity_despawns": [],
+      "component_changes": [],
+      "events": [],
+      "aggregates": {
+        "entity_count_by_tier": {
+          "Semantic": 66
+        },
+        "entity_count_by_type": {
+          "tile": 64,
+          "container": 1,
+          "ui": 1
+        },
+        "total_entity_count": 66,
+        "custom": {}
+      },
+      "systems_executed": [],
+      "commands_processed": 0,
+      "commands_succeeded": 0
+    },
+    {
+      "tick": 14,
+      "sim_time": 0.23333333333333334,
+      "entity_spawns": [],
+      "entity_despawns": [],
+      "component_changes": [],
+      "events": [],
+      "aggregates": {
+        "entity_count_by_tier": {
+          "Semantic": 66
+        },
+        "entity_count_by_type": {
+          "tile": 64,
+          "ui": 1,
+          "container": 1
+        },
+        "total_entity_count": 66,
+        "custom": {}
+      },
+      "systems_executed": [],
+      "commands_processed": 0,
+      "commands_succeeded": 0
+    },
+    {
+      "tick": 15,
+      "sim_time": 0.25,
+      "entity_spawns": [],
+      "entity_despawns": [],
+      "component_changes": [],
+      "events": [],
+      "aggregates": {
+        "entity_count_by_tier": {
+          "Semantic": 66
+        },
+        "entity_count_by_type": {
+          "ui": 1,
+          "tile": 64,
+          "container": 1
+        },
+        "total_entity_count": 66,
+        "custom": {}
+      },
+      "systems_executed": [],
+      "commands_processed": 0,
+      "commands_succeeded": 0
+    },
+    {
+      "tick": 16,
+      "sim_time": 0.26666666666666666,
+      "entity_spawns": [],
+      "entity_despawns": [],
+      "component_changes": [],
+      "events": [],
+      "aggregates": {
+        "entity_count_by_tier": {
+          "Semantic": 66
+        },
+        "entity_count_by_type": {
+          "tile": 64,
+          "ui": 1,
+          "container": 1
+        },
+        "total_entity_count": 66,
+        "custom": {}
+      },
+      "systems_executed": [],
+      "commands_processed": 0,
+      "commands_succeeded": 0
+    },
+    {
+      "tick": 17,
+      "sim_time": 0.2833333333333333,
+      "entity_spawns": [],
+      "entity_despawns": [],
+      "component_changes": [
+        {
+          "entity_id": 1,
+          "component_type_name": "score_value",
+          "old_value": null,
+          "new_value": {
+            "points": 1500
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 0,
+          "tick": 17
+        },
+        {
+          "entity_id": 2,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "emerald",
+            "type_id": 2
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 1,
+          "tick": 17
+        },
+        {
+          "entity_id": 2,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 0,
+            "y": 0
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 2,
+          "tick": 17
+        },
+        {
+          "entity_id": 3,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "sapphire",
+            "type_id": 1
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 3,
+          "tick": 17
+        },
+        {
+          "entity_id": 3,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 1,
+            "y": 0
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 4,
+          "tick": 17
+        },
+        {
+          "entity_id": 4,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "emerald",
+            "type_id": 2
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 5,
+          "tick": 17
+        },
+        {
+          "entity_id": 4,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 2,
+            "y": 0
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 6,
+          "tick": 17
+        },
+        {
+          "entity_id": 5,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "amethyst",
+            "type_id": 4
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 7,
+          "tick": 17
+        },
+        {
+          "entity_id": 5,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 3,
+            "y": 0
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 8,
+          "tick": 17
+        },
+        {
+          "entity_id": 6,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "emerald",
+            "type_id": 2
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 9,
+          "tick": 17
+        },
+        {
+          "entity_id": 6,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 4,
+            "y": 0
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 10,
+          "tick": 17
+        },
+        {
+          "entity_id": 7,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "emerald",
+            "type_id": 2
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 11,
+          "tick": 17
+        },
+        {
+          "entity_id": 7,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 5,
+            "y": 0
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 12,
+          "tick": 17
+        },
+        {
+          "entity_id": 8,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "ruby",
+            "type_id": 0
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 13,
+          "tick": 17
+        },
+        {
+          "entity_id": 8,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 6,
+            "y": 0
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 14,
+          "tick": 17
+        },
+        {
+          "entity_id": 9,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "amethyst",
+            "type_id": 4
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 15,
+          "tick": 17
+        },
+        {
+          "entity_id": 9,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 7,
+            "y": 0
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 16,
+          "tick": 17
+        },
+        {
+          "entity_id": 10,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "ruby",
+            "type_id": 0
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 17,
+          "tick": 17
+        },
+        {
+          "entity_id": 10,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 0,
+            "y": 1
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 18,
+          "tick": 17
+        },
+        {
+          "entity_id": 11,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "ruby",
+            "type_id": 0
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 19,
+          "tick": 17
+        },
+        {
+          "entity_id": 11,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 1,
+            "y": 1
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 20,
+          "tick": 17
+        },
+        {
+          "entity_id": 12,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "emerald",
+            "type_id": 2
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 21,
+          "tick": 17
+        },
+        {
+          "entity_id": 12,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 2,
+            "y": 1
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 22,
+          "tick": 17
+        },
+        {
+          "entity_id": 13,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "sapphire",
+            "type_id": 1
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 23,
+          "tick": 17
+        },
+        {
+          "entity_id": 13,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 3,
+            "y": 1
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 24,
+          "tick": 17
+        },
+        {
+          "entity_id": 14,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "sapphire",
+            "type_id": 1
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 25,
+          "tick": 17
+        },
+        {
+          "entity_id": 14,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 4,
+            "y": 1
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 26,
+          "tick": 17
+        },
+        {
+          "entity_id": 15,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "ruby",
+            "type_id": 0
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 27,
+          "tick": 17
+        },
+        {
+          "entity_id": 15,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 5,
+            "y": 1
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 28,
+          "tick": 17
+        },
+        {
+          "entity_id": 16,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "sapphire",
+            "type_id": 1
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 29,
+          "tick": 17
+        },
+        {
+          "entity_id": 16,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 6,
+            "y": 1
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 30,
+          "tick": 17
+        },
+        {
+          "entity_id": 17,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "emerald",
+            "type_id": 2
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 31,
+          "tick": 17
+        },
+        {
+          "entity_id": 17,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 7,
+            "y": 1
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 32,
+          "tick": 17
+        },
+        {
+          "entity_id": 18,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "ruby",
+            "type_id": 0
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 33,
+          "tick": 17
+        },
+        {
+          "entity_id": 18,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 0,
+            "y": 2
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 34,
+          "tick": 17
+        },
+        {
+          "entity_id": 19,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "amethyst",
+            "type_id": 4
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 35,
+          "tick": 17
+        },
+        {
+          "entity_id": 19,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 1,
+            "y": 2
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 36,
+          "tick": 17
+        },
+        {
+          "entity_id": 20,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "topaz",
+            "type_id": 3
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 37,
+          "tick": 17
+        },
+        {
+          "entity_id": 20,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 2,
+            "y": 2
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 38,
+          "tick": 17
+        },
+        {
+          "entity_id": 21,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "amethyst",
+            "type_id": 4
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 39,
+          "tick": 17
+        },
+        {
+          "entity_id": 21,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 3,
+            "y": 2
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 40,
+          "tick": 17
+        },
+        {
+          "entity_id": 22,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "emerald",
+            "type_id": 2
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 41,
+          "tick": 17
+        },
+        {
+          "entity_id": 22,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 4,
+            "y": 2
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 42,
+          "tick": 17
+        },
+        {
+          "entity_id": 23,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "amethyst",
+            "type_id": 4
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 43,
+          "tick": 17
+        },
+        {
+          "entity_id": 23,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 5,
+            "y": 2
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 44,
+          "tick": 17
+        },
+        {
+          "entity_id": 24,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "topaz",
+            "type_id": 3
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 45,
+          "tick": 17
+        },
+        {
+          "entity_id": 24,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 6,
+            "y": 2
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 46,
+          "tick": 17
+        },
+        {
+          "entity_id": 25,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "sapphire",
+            "type_id": 1
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 47,
+          "tick": 17
+        },
+        {
+          "entity_id": 25,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 7,
+            "y": 2
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 48,
+          "tick": 17
+        },
+        {
+          "entity_id": 26,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "topaz",
+            "type_id": 3
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 49,
+          "tick": 17
+        },
+        {
+          "entity_id": 26,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 0,
+            "y": 3
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 50,
+          "tick": 17
+        },
+        {
+          "entity_id": 27,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "ruby",
+            "type_id": 0
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 51,
+          "tick": 17
+        },
+        {
+          "entity_id": 27,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 1,
+            "y": 3
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 52,
+          "tick": 17
+        },
+        {
+          "entity_id": 28,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "emerald",
+            "type_id": 2
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 53,
+          "tick": 17
+        },
+        {
+          "entity_id": 28,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 2,
+            "y": 3
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 54,
+          "tick": 17
+        },
+        {
+          "entity_id": 29,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "ruby",
+            "type_id": 0
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 55,
+          "tick": 17
+        },
+        {
+          "entity_id": 29,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 3,
+            "y": 3
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 56,
+          "tick": 17
+        },
+        {
+          "entity_id": 30,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "topaz",
+            "type_id": 3
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 57,
+          "tick": 17
+        },
+        {
+          "entity_id": 30,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 4,
+            "y": 3
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 58,
+          "tick": 17
+        },
+        {
+          "entity_id": 31,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "topaz",
+            "type_id": 3
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 59,
+          "tick": 17
+        },
+        {
+          "entity_id": 31,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 5,
+            "y": 3
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 60,
+          "tick": 17
+        },
+        {
+          "entity_id": 32,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "emerald",
+            "type_id": 2
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 61,
+          "tick": 17
+        },
+        {
+          "entity_id": 32,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 6,
+            "y": 3
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 62,
+          "tick": 17
+        },
+        {
+          "entity_id": 33,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "emerald",
+            "type_id": 2
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 63,
+          "tick": 17
+        },
+        {
+          "entity_id": 33,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 7,
+            "y": 3
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 64,
+          "tick": 17
+        },
+        {
+          "entity_id": 34,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "sapphire",
+            "type_id": 1
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 65,
+          "tick": 17
+        },
+        {
+          "entity_id": 34,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 0,
+            "y": 4
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 66,
+          "tick": 17
+        },
+        {
+          "entity_id": 35,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "sapphire",
+            "type_id": 1
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 67,
+          "tick": 17
+        },
+        {
+          "entity_id": 35,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 1,
+            "y": 4
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 68,
+          "tick": 17
+        },
+        {
+          "entity_id": 36,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "emerald",
+            "type_id": 2
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 69,
+          "tick": 17
+        },
+        {
+          "entity_id": 36,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 2,
+            "y": 4
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 70,
+          "tick": 17
+        },
+        {
+          "entity_id": 37,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "sapphire",
+            "type_id": 1
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 71,
+          "tick": 17
+        },
+        {
+          "entity_id": 37,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 3,
+            "y": 4
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 72,
+          "tick": 17
+        },
+        {
+          "entity_id": 38,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "ruby",
+            "type_id": 0
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 73,
+          "tick": 17
+        },
+        {
+          "entity_id": 38,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 4,
+            "y": 4
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 74,
+          "tick": 17
+        },
+        {
+          "entity_id": 39,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "topaz",
+            "type_id": 3
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 75,
+          "tick": 17
+        },
+        {
+          "entity_id": 39,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 5,
+            "y": 4
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 76,
+          "tick": 17
+        },
+        {
+          "entity_id": 40,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "ruby",
+            "type_id": 0
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 77,
+          "tick": 17
+        },
+        {
+          "entity_id": 40,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 6,
+            "y": 4
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 78,
+          "tick": 17
+        },
+        {
+          "entity_id": 41,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "emerald",
+            "type_id": 2
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 79,
+          "tick": 17
+        },
+        {
+          "entity_id": 41,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 7,
+            "y": 4
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 80,
+          "tick": 17
+        },
+        {
+          "entity_id": 42,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "emerald",
+            "type_id": 2
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 81,
+          "tick": 17
+        },
+        {
+          "entity_id": 42,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 0,
+            "y": 5
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 82,
+          "tick": 17
+        },
+        {
+          "entity_id": 43,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "amethyst",
+            "type_id": 4
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 83,
+          "tick": 17
+        },
+        {
+          "entity_id": 43,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 1,
+            "y": 5
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 84,
+          "tick": 17
+        },
+        {
+          "entity_id": 44,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "topaz",
+            "type_id": 3
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 85,
+          "tick": 17
+        },
+        {
+          "entity_id": 44,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 2,
+            "y": 5
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 86,
+          "tick": 17
+        },
+        {
+          "entity_id": 45,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "sapphire",
+            "type_id": 1
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 87,
+          "tick": 17
+        },
+        {
+          "entity_id": 45,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 3,
+            "y": 5
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 88,
+          "tick": 17
+        },
+        {
+          "entity_id": 46,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "topaz",
+            "type_id": 3
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 89,
+          "tick": 17
+        },
+        {
+          "entity_id": 46,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 4,
+            "y": 5
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 90,
+          "tick": 17
+        },
+        {
+          "entity_id": 47,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "amethyst",
+            "type_id": 4
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 91,
+          "tick": 17
+        },
+        {
+          "entity_id": 47,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 5,
+            "y": 5
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 92,
+          "tick": 17
+        },
+        {
+          "entity_id": 48,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "ruby",
+            "type_id": 0
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 93,
+          "tick": 17
+        },
+        {
+          "entity_id": 48,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 6,
+            "y": 5
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 94,
+          "tick": 17
+        },
+        {
+          "entity_id": 49,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "topaz",
+            "type_id": 3
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 95,
+          "tick": 17
+        },
+        {
+          "entity_id": 49,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 7,
+            "y": 5
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 96,
+          "tick": 17
+        },
+        {
+          "entity_id": 50,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "ruby",
+            "type_id": 0
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 97,
+          "tick": 17
+        },
+        {
+          "entity_id": 50,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 0,
+            "y": 6
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 98,
+          "tick": 17
+        },
+        {
+          "entity_id": 51,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "amethyst",
+            "type_id": 4
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 99,
+          "tick": 17
+        },
+        {
+          "entity_id": 51,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 1,
+            "y": 6
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 100,
+          "tick": 17
+        },
+        {
+          "entity_id": 52,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "emerald",
+            "type_id": 2
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 101,
+          "tick": 17
+        },
+        {
+          "entity_id": 52,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 2,
+            "y": 6
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 102,
+          "tick": 17
+        },
+        {
+          "entity_id": 53,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "amethyst",
+            "type_id": 4
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 103,
+          "tick": 17
+        },
+        {
+          "entity_id": 53,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 3,
+            "y": 6
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 104,
+          "tick": 17
+        },
+        {
+          "entity_id": 54,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "emerald",
+            "type_id": 2
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 105,
+          "tick": 17
+        },
+        {
+          "entity_id": 54,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 4,
+            "y": 6
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 106,
+          "tick": 17
+        },
+        {
+          "entity_id": 55,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "amethyst",
+            "type_id": 4
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 107,
+          "tick": 17
+        },
+        {
+          "entity_id": 55,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 5,
+            "y": 6
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 108,
+          "tick": 17
+        },
+        {
+          "entity_id": 56,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "sapphire",
+            "type_id": 1
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 109,
+          "tick": 17
+        },
+        {
+          "entity_id": 56,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 6,
+            "y": 6
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 110,
+          "tick": 17
+        },
+        {
+          "entity_id": 57,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "ruby",
+            "type_id": 0
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 111,
+          "tick": 17
+        },
+        {
+          "entity_id": 57,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 7,
+            "y": 6
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 112,
+          "tick": 17
+        },
+        {
+          "entity_id": 58,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "ruby",
+            "type_id": 0
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 113,
+          "tick": 17
+        },
+        {
+          "entity_id": 58,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 0,
+            "y": 7
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 114,
+          "tick": 17
+        },
+        {
+          "entity_id": 59,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "sapphire",
+            "type_id": 1
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 115,
+          "tick": 17
+        },
+        {
+          "entity_id": 59,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 1,
+            "y": 7
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 116,
+          "tick": 17
+        },
+        {
+          "entity_id": 60,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "emerald",
+            "type_id": 2
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 117,
+          "tick": 17
+        },
+        {
+          "entity_id": 60,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 2,
+            "y": 7
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 118,
+          "tick": 17
+        },
+        {
+          "entity_id": 61,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "ruby",
+            "type_id": 0
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 119,
+          "tick": 17
+        },
+        {
+          "entity_id": 61,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 3,
+            "y": 7
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 120,
+          "tick": 17
+        },
+        {
+          "entity_id": 62,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "sapphire",
+            "type_id": 1
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 121,
+          "tick": 17
+        },
+        {
+          "entity_id": 62,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 4,
+            "y": 7
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 122,
+          "tick": 17
+        },
+        {
+          "entity_id": 63,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "ruby",
+            "type_id": 0
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 123,
+          "tick": 17
+        },
+        {
+          "entity_id": 63,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 5,
+            "y": 7
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 124,
+          "tick": 17
+        },
+        {
+          "entity_id": 64,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "topaz",
+            "type_id": 3
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 125,
+          "tick": 17
+        },
+        {
+          "entity_id": 64,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 6,
+            "y": 7
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 126,
+          "tick": 17
+        },
+        {
+          "entity_id": 65,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "emerald",
+            "type_id": 2
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 127,
+          "tick": 17
+        },
+        {
+          "entity_id": 65,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 7,
+            "y": 7
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 128,
+          "tick": 17
+        },
+        {
+          "entity_id": 0,
+          "component_type_name": "state",
+          "old_value": null,
+          "new_value": {
+            "cascade_depth": 0,
+            "phase": 0,
+            "valid_moves_count": 15
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 129,
+          "tick": 17
+        }
+      ],
+      "events": [],
+      "aggregates": {
+        "entity_count_by_tier": {
+          "Semantic": 66
+        },
+        "entity_count_by_type": {
+          "tile": 64,
+          "ui": 1,
+          "container": 1
+        },
+        "total_entity_count": 66,
+        "custom": {}
+      },
+      "systems_executed": [],
+      "commands_processed": 130,
+      "commands_succeeded": 130
+    },
+    {
+      "tick": 18,
+      "sim_time": 0.3,
+      "entity_spawns": [],
+      "entity_despawns": [],
+      "component_changes": [],
+      "events": [],
+      "aggregates": {
+        "entity_count_by_tier": {
+          "Semantic": 66
+        },
+        "entity_count_by_type": {
+          "tile": 64,
+          "ui": 1,
+          "container": 1
+        },
+        "total_entity_count": 66,
+        "custom": {}
+      },
+      "systems_executed": [],
+      "commands_processed": 0,
+      "commands_succeeded": 0
+    },
+    {
+      "tick": 19,
+      "sim_time": 0.31666666666666665,
+      "entity_spawns": [],
+      "entity_despawns": [],
+      "component_changes": [],
+      "events": [],
+      "aggregates": {
+        "entity_count_by_tier": {
+          "Semantic": 66
+        },
+        "entity_count_by_type": {
+          "container": 1,
+          "tile": 64,
+          "ui": 1
+        },
+        "total_entity_count": 66,
+        "custom": {}
+      },
+      "systems_executed": [],
+      "commands_processed": 0,
+      "commands_succeeded": 0
+    },
+    {
+      "tick": 20,
+      "sim_time": 0.3333333333333333,
+      "entity_spawns": [],
+      "entity_despawns": [],
+      "component_changes": [
+        {
+          "entity_id": 1,
+          "component_type_name": "score_value",
+          "old_value": null,
+          "new_value": {
+            "points": 3100
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 0,
+          "tick": 20
+        },
+        {
+          "entity_id": 2,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "emerald",
+            "type_id": 2
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 1,
+          "tick": 20
+        },
+        {
+          "entity_id": 2,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 0,
+            "y": 0
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 2,
+          "tick": 20
+        },
+        {
+          "entity_id": 3,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "sapphire",
+            "type_id": 1
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 3,
+          "tick": 20
+        },
+        {
+          "entity_id": 3,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 1,
+            "y": 0
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 4,
+          "tick": 20
+        },
+        {
+          "entity_id": 4,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "emerald",
+            "type_id": 2
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 5,
+          "tick": 20
+        },
+        {
+          "entity_id": 4,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 2,
+            "y": 0
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 6,
+          "tick": 20
+        },
+        {
+          "entity_id": 5,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "topaz",
+            "type_id": 3
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 7,
+          "tick": 20
+        },
+        {
+          "entity_id": 5,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 3,
+            "y": 0
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 8,
+          "tick": 20
+        },
+        {
+          "entity_id": 6,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "sapphire",
+            "type_id": 1
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 9,
+          "tick": 20
+        },
+        {
+          "entity_id": 6,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 4,
+            "y": 0
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 10,
+          "tick": 20
+        },
+        {
+          "entity_id": 7,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "ruby",
+            "type_id": 0
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 11,
+          "tick": 20
+        },
+        {
+          "entity_id": 7,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 5,
+            "y": 0
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 12,
+          "tick": 20
+        },
+        {
+          "entity_id": 8,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "emerald",
+            "type_id": 2
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 13,
+          "tick": 20
+        },
+        {
+          "entity_id": 8,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 6,
+            "y": 0
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 14,
+          "tick": 20
+        },
+        {
+          "entity_id": 9,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "topaz",
+            "type_id": 3
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 15,
+          "tick": 20
+        },
+        {
+          "entity_id": 9,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 7,
+            "y": 0
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 16,
+          "tick": 20
+        },
+        {
+          "entity_id": 10,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "ruby",
+            "type_id": 0
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 17,
+          "tick": 20
+        },
+        {
+          "entity_id": 10,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 0,
+            "y": 1
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 18,
+          "tick": 20
+        },
+        {
+          "entity_id": 11,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "ruby",
+            "type_id": 0
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 19,
+          "tick": 20
+        },
+        {
+          "entity_id": 11,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 1,
+            "y": 1
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 20,
+          "tick": 20
+        },
+        {
+          "entity_id": 12,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "emerald",
+            "type_id": 2
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 21,
+          "tick": 20
+        },
+        {
+          "entity_id": 12,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 2,
+            "y": 1
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 22,
+          "tick": 20
+        },
+        {
+          "entity_id": 13,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "amethyst",
+            "type_id": 4
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 23,
+          "tick": 20
+        },
+        {
+          "entity_id": 13,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 3,
+            "y": 1
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 24,
+          "tick": 20
+        },
+        {
+          "entity_id": 14,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "ruby",
+            "type_id": 0
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 25,
+          "tick": 20
+        },
+        {
+          "entity_id": 14,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 4,
+            "y": 1
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 26,
+          "tick": 20
+        },
+        {
+          "entity_id": 15,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "emerald",
+            "type_id": 2
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 27,
+          "tick": 20
+        },
+        {
+          "entity_id": 15,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 5,
+            "y": 1
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 28,
+          "tick": 20
+        },
+        {
+          "entity_id": 16,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "ruby",
+            "type_id": 0
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 29,
+          "tick": 20
+        },
+        {
+          "entity_id": 16,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 6,
+            "y": 1
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 30,
+          "tick": 20
+        },
+        {
+          "entity_id": 17,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "amethyst",
+            "type_id": 4
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 31,
+          "tick": 20
+        },
+        {
+          "entity_id": 17,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 7,
+            "y": 1
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 32,
+          "tick": 20
+        },
+        {
+          "entity_id": 18,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "ruby",
+            "type_id": 0
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 33,
+          "tick": 20
+        },
+        {
+          "entity_id": 18,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 0,
+            "y": 2
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 34,
+          "tick": 20
+        },
+        {
+          "entity_id": 19,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "amethyst",
+            "type_id": 4
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 35,
+          "tick": 20
+        },
+        {
+          "entity_id": 19,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 1,
+            "y": 2
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 36,
+          "tick": 20
+        },
+        {
+          "entity_id": 20,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "topaz",
+            "type_id": 3
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 37,
+          "tick": 20
+        },
+        {
+          "entity_id": 20,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 2,
+            "y": 2
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 38,
+          "tick": 20
+        },
+        {
+          "entity_id": 21,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "amethyst",
+            "type_id": 4
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 39,
+          "tick": 20
+        },
+        {
+          "entity_id": 21,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 3,
+            "y": 2
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 40,
+          "tick": 20
+        },
+        {
+          "entity_id": 22,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "emerald",
+            "type_id": 2
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 41,
+          "tick": 20
+        },
+        {
+          "entity_id": 22,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 4,
+            "y": 2
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 42,
+          "tick": 20
+        },
+        {
+          "entity_id": 23,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "sapphire",
+            "type_id": 1
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 43,
+          "tick": 20
+        },
+        {
+          "entity_id": 23,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 5,
+            "y": 2
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 44,
+          "tick": 20
+        },
+        {
+          "entity_id": 24,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "sapphire",
+            "type_id": 1
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 45,
+          "tick": 20
+        },
+        {
+          "entity_id": 24,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 6,
+            "y": 2
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 46,
+          "tick": 20
+        },
+        {
+          "entity_id": 25,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "emerald",
+            "type_id": 2
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 47,
+          "tick": 20
+        },
+        {
+          "entity_id": 25,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 7,
+            "y": 2
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 48,
+          "tick": 20
+        },
+        {
+          "entity_id": 26,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "topaz",
+            "type_id": 3
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 49,
+          "tick": 20
+        },
+        {
+          "entity_id": 26,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 0,
+            "y": 3
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 50,
+          "tick": 20
+        },
+        {
+          "entity_id": 27,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "ruby",
+            "type_id": 0
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 51,
+          "tick": 20
+        },
+        {
+          "entity_id": 27,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 1,
+            "y": 3
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 52,
+          "tick": 20
+        },
+        {
+          "entity_id": 28,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "emerald",
+            "type_id": 2
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 53,
+          "tick": 20
+        },
+        {
+          "entity_id": 28,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 2,
+            "y": 3
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 54,
+          "tick": 20
+        },
+        {
+          "entity_id": 29,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "ruby",
+            "type_id": 0
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 55,
+          "tick": 20
+        },
+        {
+          "entity_id": 29,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 3,
+            "y": 3
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 56,
+          "tick": 20
+        },
+        {
+          "entity_id": 30,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "amethyst",
+            "type_id": 4
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 57,
+          "tick": 20
+        },
+        {
+          "entity_id": 30,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 4,
+            "y": 3
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 58,
+          "tick": 20
+        },
+        {
+          "entity_id": 31,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "topaz",
+            "type_id": 3
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 59,
+          "tick": 20
+        },
+        {
+          "entity_id": 31,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 5,
+            "y": 3
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 60,
+          "tick": 20
+        },
+        {
+          "entity_id": 32,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "ruby",
+            "type_id": 0
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 61,
+          "tick": 20
+        },
+        {
+          "entity_id": 32,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 6,
+            "y": 3
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 62,
+          "tick": 20
+        },
+        {
+          "entity_id": 33,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "sapphire",
+            "type_id": 1
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 63,
+          "tick": 20
+        },
+        {
+          "entity_id": 33,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 7,
+            "y": 3
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 64,
+          "tick": 20
+        },
+        {
+          "entity_id": 34,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "sapphire",
+            "type_id": 1
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 65,
+          "tick": 20
+        },
+        {
+          "entity_id": 34,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 0,
+            "y": 4
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 66,
+          "tick": 20
+        },
+        {
+          "entity_id": 35,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "sapphire",
+            "type_id": 1
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 67,
+          "tick": 20
+        },
+        {
+          "entity_id": 35,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 1,
+            "y": 4
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 68,
+          "tick": 20
+        },
+        {
+          "entity_id": 36,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "emerald",
+            "type_id": 2
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 69,
+          "tick": 20
+        },
+        {
+          "entity_id": 36,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 2,
+            "y": 4
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 70,
+          "tick": 20
+        },
+        {
+          "entity_id": 37,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "sapphire",
+            "type_id": 1
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 71,
+          "tick": 20
+        },
+        {
+          "entity_id": 37,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 3,
+            "y": 4
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 72,
+          "tick": 20
+        },
+        {
+          "entity_id": 38,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "topaz",
+            "type_id": 3
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 73,
+          "tick": 20
+        },
+        {
+          "entity_id": 38,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 4,
+            "y": 4
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 74,
+          "tick": 20
+        },
+        {
+          "entity_id": 39,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "sapphire",
+            "type_id": 1
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 75,
+          "tick": 20
+        },
+        {
+          "entity_id": 39,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 5,
+            "y": 4
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 76,
+          "tick": 20
+        },
+        {
+          "entity_id": 40,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "amethyst",
+            "type_id": 4
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 77,
+          "tick": 20
+        },
+        {
+          "entity_id": 40,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 6,
+            "y": 4
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 78,
+          "tick": 20
+        },
+        {
+          "entity_id": 41,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "emerald",
+            "type_id": 2
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 79,
+          "tick": 20
+        },
+        {
+          "entity_id": 41,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 7,
+            "y": 4
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 80,
+          "tick": 20
+        },
+        {
+          "entity_id": 42,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "emerald",
+            "type_id": 2
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 81,
+          "tick": 20
+        },
+        {
+          "entity_id": 42,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 0,
+            "y": 5
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 82,
+          "tick": 20
+        },
+        {
+          "entity_id": 43,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "amethyst",
+            "type_id": 4
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 83,
+          "tick": 20
+        },
+        {
+          "entity_id": 43,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 1,
+            "y": 5
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 84,
+          "tick": 20
+        },
+        {
+          "entity_id": 44,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "topaz",
+            "type_id": 3
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 85,
+          "tick": 20
+        },
+        {
+          "entity_id": 44,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 2,
+            "y": 5
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 86,
+          "tick": 20
+        },
+        {
+          "entity_id": 45,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "sapphire",
+            "type_id": 1
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 87,
+          "tick": 20
+        },
+        {
+          "entity_id": 45,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 3,
+            "y": 5
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 88,
+          "tick": 20
+        },
+        {
+          "entity_id": 46,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "topaz",
+            "type_id": 3
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 89,
+          "tick": 20
+        },
+        {
+          "entity_id": 46,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 4,
+            "y": 5
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 90,
+          "tick": 20
+        },
+        {
+          "entity_id": 47,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "amethyst",
+            "type_id": 4
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 91,
+          "tick": 20
+        },
+        {
+          "entity_id": 47,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 5,
+            "y": 5
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 92,
+          "tick": 20
+        },
+        {
+          "entity_id": 48,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "ruby",
+            "type_id": 0
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 93,
+          "tick": 20
+        },
+        {
+          "entity_id": 48,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 6,
+            "y": 5
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 94,
+          "tick": 20
+        },
+        {
+          "entity_id": 49,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "topaz",
+            "type_id": 3
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 95,
+          "tick": 20
+        },
+        {
+          "entity_id": 49,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 7,
+            "y": 5
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 96,
+          "tick": 20
+        },
+        {
+          "entity_id": 50,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "ruby",
+            "type_id": 0
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 97,
+          "tick": 20
+        },
+        {
+          "entity_id": 50,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 0,
+            "y": 6
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 98,
+          "tick": 20
+        },
+        {
+          "entity_id": 51,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "amethyst",
+            "type_id": 4
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 99,
+          "tick": 20
+        },
+        {
+          "entity_id": 51,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 1,
+            "y": 6
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 100,
+          "tick": 20
+        },
+        {
+          "entity_id": 52,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "emerald",
+            "type_id": 2
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 101,
+          "tick": 20
+        },
+        {
+          "entity_id": 52,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 2,
+            "y": 6
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 102,
+          "tick": 20
+        },
+        {
+          "entity_id": 53,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "amethyst",
+            "type_id": 4
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 103,
+          "tick": 20
+        },
+        {
+          "entity_id": 53,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 3,
+            "y": 6
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 104,
+          "tick": 20
+        },
+        {
+          "entity_id": 54,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "emerald",
+            "type_id": 2
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 105,
+          "tick": 20
+        },
+        {
+          "entity_id": 54,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 4,
+            "y": 6
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 106,
+          "tick": 20
+        },
+        {
+          "entity_id": 55,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "amethyst",
+            "type_id": 4
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 107,
+          "tick": 20
+        },
+        {
+          "entity_id": 55,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 5,
+            "y": 6
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 108,
+          "tick": 20
+        },
+        {
+          "entity_id": 56,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "sapphire",
+            "type_id": 1
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 109,
+          "tick": 20
+        },
+        {
+          "entity_id": 56,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 6,
+            "y": 6
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 110,
+          "tick": 20
+        },
+        {
+          "entity_id": 57,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "ruby",
+            "type_id": 0
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 111,
+          "tick": 20
+        },
+        {
+          "entity_id": 57,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 7,
+            "y": 6
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 112,
+          "tick": 20
+        },
+        {
+          "entity_id": 58,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "ruby",
+            "type_id": 0
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 113,
+          "tick": 20
+        },
+        {
+          "entity_id": 58,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 0,
+            "y": 7
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 114,
+          "tick": 20
+        },
+        {
+          "entity_id": 59,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "sapphire",
+            "type_id": 1
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 115,
+          "tick": 20
+        },
+        {
+          "entity_id": 59,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 1,
+            "y": 7
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 116,
+          "tick": 20
+        },
+        {
+          "entity_id": 60,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "emerald",
+            "type_id": 2
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 117,
+          "tick": 20
+        },
+        {
+          "entity_id": 60,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 2,
+            "y": 7
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 118,
+          "tick": 20
+        },
+        {
+          "entity_id": 61,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "ruby",
+            "type_id": 0
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 119,
+          "tick": 20
+        },
+        {
+          "entity_id": 61,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 3,
+            "y": 7
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 120,
+          "tick": 20
+        },
+        {
+          "entity_id": 62,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "sapphire",
+            "type_id": 1
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 121,
+          "tick": 20
+        },
+        {
+          "entity_id": 62,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 4,
+            "y": 7
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 122,
+          "tick": 20
+        },
+        {
+          "entity_id": 63,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "ruby",
+            "type_id": 0
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 123,
+          "tick": 20
+        },
+        {
+          "entity_id": 63,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 5,
+            "y": 7
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 124,
+          "tick": 20
+        },
+        {
+          "entity_id": 64,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "topaz",
+            "type_id": 3
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 125,
+          "tick": 20
+        },
+        {
+          "entity_id": 64,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 6,
+            "y": 7
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 126,
+          "tick": 20
+        },
+        {
+          "entity_id": 65,
+          "component_type_name": "tile_type",
+          "old_value": null,
+          "new_value": {
+            "name": "emerald",
+            "type_id": 2
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 127,
+          "tick": 20
+        },
+        {
+          "entity_id": 65,
+          "component_type_name": "position",
+          "old_value": null,
+          "new_value": {
+            "x": 7,
+            "y": 7
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 128,
+          "tick": 20
+        },
+        {
+          "entity_id": 0,
+          "component_type_name": "state",
+          "old_value": null,
+          "new_value": {
+            "cascade_depth": 0,
+            "phase": 0,
+            "valid_moves_count": 12
+          },
+          "changed_by": 0,
+          "reason": {
+            "SystemInternal": "python_set"
+          },
+          "command_index": 129,
+          "tick": 20
+        }
+      ],
+      "events": [],
+      "aggregates": {
+        "entity_count_by_tier": {
+          "Semantic": 66
+        },
+        "entity_count_by_type": {
+          "ui": 1,
+          "container": 1,
+          "tile": 64
+        },
+        "total_entity_count": 66,
+        "custom": {}
+      },
+      "systems_executed": [],
+      "commands_processed": 130,
+      "commands_succeeded": 130
+    }
+  ],
+  "expected_pass_count": 14,
+  "expected_fail_count": 0
+}

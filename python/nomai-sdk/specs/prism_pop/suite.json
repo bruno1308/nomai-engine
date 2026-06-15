@@ -1,0 +1,161 @@
+{
+  "name": "prism_pop_verification",
+  "description": "Auto-generated verification suite for Prism Pop",
+  "intents": [
+    {
+      "name": "grid_exists",
+      "kind": "entity",
+      "description": "Entity 'grid' must exist with required components",
+      "entity_type": "container",
+      "entity_role": "grid",
+      "must_exist": true,
+      "must_be_visible": true,
+      "required_components": [
+        "position",
+        "size"
+      ]
+    },
+    {
+      "name": "tile_exists",
+      "kind": "entity",
+      "description": "Entity 'tile' must exist with required components",
+      "entity_type": "tile",
+      "entity_role": "tile",
+      "must_exist": true,
+      "must_be_visible": true,
+      "required_components": [
+        "position",
+        "size",
+        "tile_type"
+      ]
+    },
+    {
+      "name": "score_exists",
+      "kind": "entity",
+      "description": "Entity 'score' must exist with required components",
+      "entity_type": "ui",
+      "entity_role": "score",
+      "must_exist": true,
+      "must_be_visible": true,
+      "required_components": [
+        "position",
+        "score_value"
+      ]
+    },
+    {
+      "name": "shard_exists",
+      "kind": "entity",
+      "description": "Entity 'shard' must exist with required components",
+      "entity_type": "particle",
+      "entity_role": "shard",
+      "must_exist": true,
+      "must_be_visible": true,
+      "required_components": [
+        "position",
+        "velocity"
+      ]
+    },
+    {
+      "name": "tile_x_bounds",
+      "kind": "invariant",
+      "description": "Entity 'tile' x-position must stay within [0.0, 7.0]",
+      "condition": "component_range:tile.position.x in [0.0, 7.0]"
+    },
+    {
+      "name": "tile_y_bounds",
+      "kind": "invariant",
+      "description": "Entity 'tile' y-position must stay within [0.0, 7.0]",
+      "condition": "component_range:tile.position.y in [0.0, 7.0]"
+    },
+    {
+      "name": "shard_x_bounds",
+      "kind": "invariant",
+      "description": "Entity 'shard' x-position must stay within [-100.0, 2020.0]",
+      "condition": "component_range:shard.position.x in [-100.0, 2020.0]"
+    },
+    {
+      "name": "shard_y_bounds",
+      "kind": "invariant",
+      "description": "Entity 'shard' y-position must stay within [-100.0, 1180.0]",
+      "condition": "component_range:shard.position.y in [-100.0, 1180.0]"
+    },
+    {
+      "name": "shard_speed_dx",
+      "kind": "metric",
+      "description": "Entity 'shard' velocity.dx must stay within [-500.0, 500.0]",
+      "metric_entity": "shard",
+      "metric_component": "velocity",
+      "metric_field": "dx",
+      "metric_range": [
+        -500.0,
+        500.0
+      ]
+    },
+    {
+      "name": "shard_speed_dy",
+      "kind": "metric",
+      "description": "Entity 'shard' velocity.dy must stay within [-500.0, 500.0]",
+      "metric_entity": "shard",
+      "metric_component": "velocity",
+      "metric_field": "dy",
+      "metric_range": [
+        -500.0,
+        500.0
+      ]
+    },
+    {
+      "name": "invariant_grid_always_full",
+      "kind": "invariant",
+      "description": "The 8x8 grid must always have exactly 64 tiles after gravity fill completes.",
+      "condition": "== 64"
+    },
+    {
+      "name": "invariant_score_non_negative",
+      "kind": "invariant",
+      "description": "Score must never be negative.",
+      "condition": ">= 0"
+    },
+    {
+      "name": "invariant_score_monotonic",
+      "kind": "invariant",
+      "description": "Score can only increase, never decrease.",
+      "condition": "monotonic_increasing"
+    },
+    {
+      "name": "invariant_tile_type_valid",
+      "kind": "invariant",
+      "description": "Tile type must be one of 5 valid jewel types (0=Ruby, 1=Sapphire, 2=Emerald, 3=Topaz, 4=Amethyst).",
+      "condition": "component_range:tile.tile_type.type_id in [0, 4]"
+    },
+    {
+      "name": "invariant_tile_within_grid",
+      "kind": "invariant",
+      "description": "Tile grid x-position must be within 0-7.",
+      "condition": ">= 0 and <= 7"
+    },
+    {
+      "name": "invariant_tile_within_grid_y",
+      "kind": "invariant",
+      "description": "Tile grid y-position must be within 0-7.",
+      "condition": ">= 0 and <= 7"
+    },
+    {
+      "name": "degenerate_no_valid_moves",
+      "kind": "invariant",
+      "description": "No valid swaps exist on the board. The grid should be reshuffled to prevent a deadlocked state.",
+      "condition": "degenerate_guard:grid.state.valid_moves_count must_not == 0"
+    },
+    {
+      "name": "degenerate_score_overflow",
+      "kind": "invariant",
+      "description": "Score exceeds the maximum displayable value.",
+      "condition": "degenerate_guard:score.score_value.points must_not > 99999"
+    },
+    {
+      "name": "degenerate_infinite_cascade",
+      "kind": "invariant",
+      "description": "A match cascade exceeds 20 steps, suggesting an infinite loop in match/fill logic.",
+      "condition": "degenerate_guard:grid.state.cascade_depth must_not > 20"
+    }
+  ]
+}

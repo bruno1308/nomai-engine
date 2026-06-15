@@ -1,0 +1,126 @@
+{
+  "agent_meta": {
+    "task": "breakout",
+    "model": "sonnet",
+    "max_budget_usd": 10.0,
+    "wall_time_s": 600.3147982000373,
+    "exit_code": -1,
+    "signal": "DONE",
+    "iterations": 2,
+    "max_iterations": 2,
+    "converged": false
+  },
+  "task_result": {
+    "task_id": "breakout",
+    "succeeded": false,
+    "complexity_weight": 1.0,
+    "iterations": 0,
+    "human_interventions": 0,
+    "replay_deterministic": true,
+    "perf_gates_met": true
+  },
+  "ground_truth": {
+    "entity_count": 25,
+    "replay_deterministic": true,
+    "stdout_hash": "e963dd5aaadeb36047890c3c7cb5276221e2bf2518cb334e11fc76831cfa7378",
+    "snapshot_summary": "Scene @ tick 301 (t=5.017s)\n  Entities: 24\n  Bounds: (-10,-10) to (1008,1530)\n  [0] paddle (character) @ (400.0,560.0) 100x15 \n  [1] ball (projectile) @ (1007.8,1529.8) none v=(113.8,300.0)\n  [2] brick (destructible) @ (255.0,60.0) 60x20 \n  [3] brick (destructible) @ (325.0,60.0) 60x20 \n  [4] brick (destructible) @ (395.0,60.0) 60x20 \n  [5] brick (destructible) @ (465.0,60.0) 60x20 \n  [6] brick (destructible) @ (535.0,60.0) 60x20 \n  [7] brick (destructible) @ (255.0,90.0) 60x20 \n  [8] brick (destructible) @ (325.0,90.0) 60x20 \n  [9] brick (destructible) @ (395.0,90.0) 60x20 \n  [10] brick (destructible) @ (465.0,90.0) 60x20 \n  [11] brick (destructible) @ (535.0,90.0) 60x20 \n  [12] brick (destructible) @ (255.0,120.0) 60x20 \n  [13] brick (destructible) @ (325.0,120.0) 60x20 \n  [14] brick (destructible) @ (395.0,120.0) 60x20 \n  [15] brick (destructible) @ (465.0,120.0) 60x20 \n  [16] brick (destructible) @ (535.0,120.0) 60x20 \n  [17] brick (destructible) @ (255.0,150.0) 60x20 \n  [18] brick (destructible) @ (325.0,150.0) 60x20 \n  [19] brick (destructible) @ (395.0,150.0) 60x20 \n  [21] brick (destructible) @ (535.0,150.0) 60x20 \n  [22] wall_top (boundary) @ (400.0,-10.0) none \n  [23] wall_left (boundary) @ (-10.0,300.0) none \n  [24] wall_right (boundary) @ (810.0,300.0) none ",
+    "validation_passed": false,
+    "validation_checks": {
+      "has_paddle": true,
+      "has_ball": true,
+      "has_bricks": true,
+      "has_walls": true,
+      "ball_moved": true,
+      "ball_in_bounds": false,
+      "bricks_destroyed": true,
+      "paddle_exists": true,
+      "ball_exists": true,
+      "bricks_exist": true,
+      "paddle_has_components": true,
+      "ball_has_components": true,
+      "bricks_have_components": true,
+      "ball_speed_bounded": true,
+      "paddle_in_bounds": true
+    },
+    "validation_details": {
+      "has_paddle": "paddle count: 1",
+      "has_ball": "ball count: 1",
+      "has_bricks": "brick count: 19",
+      "has_walls": "wall count: 3 (expected >=3)",
+      "ball_moved": "ball position: (1007.8, 1529.8), start was (400, 300)",
+      "ball_in_bounds": "ball at (1007.8, 1529.8), bounds: (0-800.0, 0-600.0), margin: 50.0",
+      "bricks_destroyed": "1/20 bricks destroyed",
+      "paddle_exists": "paddle count: 1",
+      "ball_exists": "ball count: 1",
+      "bricks_exist": "brick count: 19",
+      "paddle_has_components": "position=yes, size=yes",
+      "ball_has_components": "position=yes, velocity=yes",
+      "bricks_have_components": "all 19 bricks have position+size",
+      "ball_speed_bounded": "velocity=(113.8, 300.0), limit=[-500.0, 500.0]",
+      "paddle_in_bounds": "paddle x=400.0, bounds=[0.0, 800.0]"
+    },
+    "intent_results": {
+      "has_paddle": {
+        "passed": true,
+        "detail": "paddle count: 1"
+      },
+      "has_ball": {
+        "passed": true,
+        "detail": "ball count: 1"
+      },
+      "has_bricks": {
+        "passed": true,
+        "detail": "brick count: 19"
+      },
+      "has_walls": {
+        "passed": true,
+        "detail": "wall count: 3 (expected >=3)"
+      },
+      "ball_moved": {
+        "passed": true,
+        "detail": "ball position: (1007.8, 1529.8), start was (400, 300)"
+      },
+      "ball_in_bounds": {
+        "passed": false,
+        "detail": "ball at (1007.8, 1529.8), bounds: (0-800.0, 0-600.0), margin: 50.0"
+      },
+      "bricks_destroyed": {
+        "passed": true,
+        "detail": "1/20 bricks destroyed"
+      },
+      "paddle_exists": {
+        "passed": true,
+        "detail": "paddle count: 1"
+      },
+      "ball_exists": {
+        "passed": true,
+        "detail": "ball count: 1"
+      },
+      "bricks_exist": {
+        "passed": true,
+        "detail": "brick count: 19"
+      },
+      "paddle_has_components": {
+        "passed": true,
+        "detail": "position=yes, size=yes"
+      },
+      "ball_has_components": {
+        "passed": true,
+        "detail": "position=yes, velocity=yes"
+      },
+      "bricks_have_components": {
+        "passed": true,
+        "detail": "all 19 bricks have position+size"
+      },
+      "ball_speed_bounded": {
+        "passed": true,
+        "detail": "velocity=(113.8, 300.0), limit=[-500.0, 500.0]"
+      },
+      "paddle_in_bounds": {
+        "passed": true,
+        "detail": "paddle x=400.0, bounds=[0.0, 800.0]"
+      }
+    }
+  },
+  "llm_scores": null
+}

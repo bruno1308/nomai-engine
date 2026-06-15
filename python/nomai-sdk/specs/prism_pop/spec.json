@@ -1,0 +1,191 @@
+{
+  "title": "Prism Pop",
+  "description": "A single-level match-3 puzzle game focused on juicy visual feedback. Players swap adjacent jewels on an 8x8 grid to form matches of 3 or more, earning points toward a 2500-point win target.",
+  "play_area": {
+    "width": 1920.0,
+    "height": 1080.0
+  },
+  "entities": [
+    {
+      "name": "grid",
+      "entity_type": "container",
+      "role": "grid",
+      "body_type": "static",
+      "bounds": null,
+      "speed_max": null,
+      "required_components": [
+        "position",
+        "size"
+      ]
+    },
+    {
+      "name": "tile",
+      "entity_type": "tile",
+      "role": "tile",
+      "body_type": "kinematic",
+      "bounds": {
+        "x_min": 0.0,
+        "x_max": 7.0,
+        "y_min": 0.0,
+        "y_max": 7.0
+      },
+      "speed_max": null,
+      "required_components": [
+        "position",
+        "size",
+        "tile_type"
+      ]
+    },
+    {
+      "name": "score",
+      "entity_type": "ui",
+      "role": "score",
+      "body_type": "static",
+      "bounds": null,
+      "speed_max": null,
+      "required_components": [
+        "position",
+        "score_value"
+      ]
+    },
+    {
+      "name": "shard",
+      "entity_type": "particle",
+      "role": "shard",
+      "body_type": "dynamic",
+      "bounds": {
+        "x_min": -100.0,
+        "x_max": 2020.0,
+        "y_min": -100.0,
+        "y_max": 1180.0
+      },
+      "speed_max": 500.0,
+      "required_components": [
+        "position",
+        "velocity"
+      ]
+    }
+  ],
+  "interactions": [
+    {
+      "entity_a": "tile",
+      "entity_b": "tile",
+      "behavior": "none",
+      "description": "Adjacent tiles can be swapped by the player. If the swap forms a match of 3+, matched tiles are destroyed. If no match, tiles snap back to original positions."
+    },
+    {
+      "entity_a": "tile",
+      "entity_b": "grid",
+      "behavior": "none",
+      "description": "Tiles are contained within the grid. After matches, tiles above empty spaces fall down (gravity) and new tiles spawn at the top."
+    },
+    {
+      "entity_a": "shard",
+      "entity_b": "grid",
+      "behavior": "none",
+      "description": "Shards are visual-only particles that do not interact with the grid."
+    },
+    {
+      "entity_a": "shard",
+      "entity_b": "tile",
+      "behavior": "none",
+      "description": "Shards pass through tiles without interaction."
+    },
+    {
+      "entity_a": "shard",
+      "entity_b": "score",
+      "behavior": "none",
+      "description": "Shards do not interact with the score UI."
+    },
+    {
+      "entity_a": "tile",
+      "entity_b": "score",
+      "behavior": "none",
+      "description": "Tile matches add points to score. 3-match: 300pts, 4-match: 500pts, 5-match: 1000pts."
+    },
+    {
+      "entity_a": "shard",
+      "entity_b": "shard",
+      "behavior": "none",
+      "description": "Shards do not interact with each other."
+    }
+  ],
+  "invariants": [
+    {
+      "name": "grid_always_full",
+      "entity": "tile",
+      "component": "count",
+      "field": "total",
+      "condition": "== 64",
+      "description": "The 8x8 grid must always have exactly 64 tiles after gravity fill completes."
+    },
+    {
+      "name": "score_non_negative",
+      "entity": "score",
+      "component": "score_value",
+      "field": "points",
+      "condition": ">= 0",
+      "description": "Score must never be negative."
+    },
+    {
+      "name": "score_monotonic",
+      "entity": "score",
+      "component": "score_value",
+      "field": "points",
+      "condition": "monotonic_increasing",
+      "description": "Score can only increase, never decrease."
+    },
+    {
+      "name": "tile_type_valid",
+      "entity": "tile",
+      "component": "tile_type",
+      "field": "type_id",
+      "condition": ">= 0 and <= 4",
+      "description": "Tile type must be one of 5 valid jewel types (0=Ruby, 1=Sapphire, 2=Emerald, 3=Topaz, 4=Amethyst)."
+    },
+    {
+      "name": "tile_within_grid",
+      "entity": "tile",
+      "component": "position",
+      "field": "x",
+      "condition": ">= 0 and <= 7",
+      "description": "Tile grid x-position must be within 0-7."
+    },
+    {
+      "name": "tile_within_grid_y",
+      "entity": "tile",
+      "component": "position",
+      "field": "y",
+      "condition": ">= 0 and <= 7",
+      "description": "Tile grid y-position must be within 0-7."
+    }
+  ],
+  "degenerate_states": [
+    {
+      "name": "no_valid_moves",
+      "entity": "grid",
+      "component": "state",
+      "field": "valid_moves_count",
+      "condition": "== 0",
+      "description": "No valid swaps exist on the board. The grid should be reshuffled to prevent a deadlocked state."
+    },
+    {
+      "name": "score_overflow",
+      "entity": "score",
+      "component": "score_value",
+      "field": "points",
+      "condition": "> 99999",
+      "description": "Score exceeds the maximum displayable value."
+    },
+    {
+      "name": "infinite_cascade",
+      "entity": "grid",
+      "component": "state",
+      "field": "cascade_depth",
+      "condition": "> 20",
+      "description": "A match cascade exceeds 20 steps, suggesting an infinite loop in match/fill logic."
+    }
+  ],
+  "win_condition": "Player reaches 2500 points. Upon reaching the target, the game freezes for 0.5 seconds (Big Freeze), all remaining tiles explode, and a Level Complete screen is shown.",
+  "lose_condition": ""
+}

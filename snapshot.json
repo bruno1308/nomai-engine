@@ -1,0 +1,833 @@
+{
+  "schema_version": 1,
+  "tick": 301,
+  "sim_time": 5.016666666666667,
+  "entities": [
+    {
+      "entity_id": 0,
+      "entity_type": "character",
+      "role": "paddle",
+      "tier": "Semantic",
+      "position": [
+        400.0,
+        560.0
+      ],
+      "size": [
+        100.0,
+        15.0
+      ],
+      "velocity": null,
+      "visible": true,
+      "z_index": 0.0,
+      "components": {
+        "__identity": {
+          "Semantic": {
+            "entity_type": "character",
+            "requirement_id": null,
+            "role": "paddle",
+            "spawned_by": 0
+          }
+        },
+        "position": {
+          "x": 400.0,
+          "y": 560.0
+        },
+        "size": {
+          "h": 15.0,
+          "w": 100.0
+        }
+      }
+    },
+    {
+      "entity_id": 1,
+      "entity_type": "projectile",
+      "role": "ball",
+      "tier": "Semantic",
+      "position": [
+        1007.8065795898438,
+        1529.847900390625
+      ],
+      "size": null,
+      "velocity": [
+        113.8047103881836,
+        300.0
+      ],
+      "visible": true,
+      "z_index": 0.0,
+      "components": {
+        "velocity": {
+          "dx": 113.8047103881836,
+          "dy": 300.0
+        },
+        "position": {
+          "x": 1007.8065795898438,
+          "y": 1529.847900390625
+        },
+        "__identity": {
+          "Semantic": {
+            "entity_type": "projectile",
+            "requirement_id": null,
+            "role": "ball",
+            "spawned_by": 0
+          }
+        }
+      }
+    },
+    {
+      "entity_id": 2,
+      "entity_type": "destructible",
+      "role": "brick",
+      "tier": "Semantic",
+      "position": [
+        255.0,
+        60.0
+      ],
+      "size": [
+        60.0,
+        20.0
+      ],
+      "velocity": null,
+      "visible": true,
+      "z_index": 0.0,
+      "components": {
+        "position": {
+          "x": 255.0,
+          "y": 60.0
+        },
+        "__identity": {
+          "Semantic": {
+            "entity_type": "destructible",
+            "requirement_id": null,
+            "role": "brick",
+            "spawned_by": 0
+          }
+        },
+        "size": {
+          "h": 20.0,
+          "w": 60.0
+        }
+      }
+    },
+    {
+      "entity_id": 3,
+      "entity_type": "destructible",
+      "role": "brick",
+      "tier": "Semantic",
+      "position": [
+        325.0,
+        60.0
+      ],
+      "size": [
+        60.0,
+        20.0
+      ],
+      "velocity": null,
+      "visible": true,
+      "z_index": 0.0,
+      "components": {
+        "position": {
+          "x": 325.0,
+          "y": 60.0
+        },
+        "size": {
+          "h": 20.0,
+          "w": 60.0
+        },
+        "__identity": {
+          "Semantic": {
+            "entity_type": "destructible",
+            "requirement_id": null,
+            "role": "brick",
+            "spawned_by": 0
+          }
+        }
+      }
+    },
+    {
+      "entity_id": 4,
+      "entity_type": "destructible",
+      "role": "brick",
+      "tier": "Semantic",
+      "position": [
+        395.0,
+        60.0
+      ],
+      "size": [
+        60.0,
+        20.0
+      ],
+      "velocity": null,
+      "visible": true,
+      "z_index": 0.0,
+      "components": {
+        "__identity": {
+          "Semantic": {
+            "entity_type": "destructible",
+            "requirement_id": null,
+            "role": "brick",
+            "spawned_by": 0
+          }
+        },
+        "position": {
+          "x": 395.0,
+          "y": 60.0
+        },
+        "size": {
+          "h": 20.0,
+          "w": 60.0
+        }
+      }
+    },
+    {
+      "entity_id": 5,
+      "entity_type": "destructible",
+      "role": "brick",
+      "tier": "Semantic",
+      "position": [
+        465.0,
+        60.0
+      ],
+      "size": [
+        60.0,
+        20.0
+      ],
+      "velocity": null,
+      "visible": true,
+      "z_index": 0.0,
+      "components": {
+        "position": {
+          "x": 465.0,
+          "y": 60.0
+        },
+        "size": {
+          "h": 20.0,
+          "w": 60.0
+        },
+        "__identity": {
+          "Semantic": {
+            "entity_type": "destructible",
+            "requirement_id": null,
+            "role": "brick",
+            "spawned_by": 0
+          }
+        }
+      }
+    },
+    {
+      "entity_id": 6,
+      "entity_type": "destructible",
+      "role": "brick",
+      "tier": "Semantic",
+      "position": [
+        535.0,
+        60.0
+      ],
+      "size": [
+        60.0,
+        20.0
+      ],
+      "velocity": null,
+      "visible": true,
+      "z_index": 0.0,
+      "components": {
+        "size": {
+          "h": 20.0,
+          "w": 60.0
+        },
+        "__identity": {
+          "Semantic": {
+            "entity_type": "destructible",
+            "requirement_id": null,
+            "role": "brick",
+            "spawned_by": 0
+          }
+        },
+        "position": {
+          "x": 535.0,
+          "y": 60.0
+        }
+      }
+    },
+    {
+      "entity_id": 7,
+      "entity_type": "destructible",
+      "role": "brick",
+      "tier": "Semantic",
+      "position": [
+        255.0,
+        90.0
+      ],
+      "size": [
+        60.0,
+        20.0
+      ],
+      "velocity": null,
+      "visible": true,
+      "z_index": 0.0,
+      "components": {
+        "__identity": {
+          "Semantic": {
+            "entity_type": "destructible",
+            "requirement_id": null,
+            "role": "brick",
+            "spawned_by": 0
+          }
+        },
+        "size": {
+          "h": 20.0,
+          "w": 60.0
+        },
+        "position": {
+          "x": 255.0,
+          "y": 90.0
+        }
+      }
+    },
+    {
+      "entity_id": 8,
+      "entity_type": "destructible",
+      "role": "brick",
+      "tier": "Semantic",
+      "position": [
+        325.0,
+        90.0
+      ],
+      "size": [
+        60.0,
+        20.0
+      ],
+      "velocity": null,
+      "visible": true,
+      "z_index": 0.0,
+      "components": {
+        "size": {
+          "h": 20.0,
+          "w": 60.0
+        },
+        "__identity": {
+          "Semantic": {
+            "entity_type": "destructible",
+            "requirement_id": null,
+            "role": "brick",
+            "spawned_by": 0
+          }
+        },
+        "position": {
+          "x": 325.0,
+          "y": 90.0
+        }
+      }
+    },
+    {
+      "entity_id": 9,
+      "entity_type": "destructible",
+      "role": "brick",
+      "tier": "Semantic",
+      "position": [
+        395.0,
+        90.0
+      ],
+      "size": [
+        60.0,
+        20.0
+      ],
+      "velocity": null,
+      "visible": true,
+      "z_index": 0.0,
+      "components": {
+        "position": {
+          "x": 395.0,
+          "y": 90.0
+        },
+        "size": {
+          "h": 20.0,
+          "w": 60.0
+        },
+        "__identity": {
+          "Semantic": {
+            "entity_type": "destructible",
+            "requirement_id": null,
+            "role": "brick",
+            "spawned_by": 0
+          }
+        }
+      }
+    },
+    {
+      "entity_id": 10,
+      "entity_type": "destructible",
+      "role": "brick",
+      "tier": "Semantic",
+      "position": [
+        465.0,
+        90.0
+      ],
+      "size": [
+        60.0,
+        20.0
+      ],
+      "velocity": null,
+      "visible": true,
+      "z_index": 0.0,
+      "components": {
+        "size": {
+          "h": 20.0,
+          "w": 60.0
+        },
+        "__identity": {
+          "Semantic": {
+            "entity_type": "destructible",
+            "requirement_id": null,
+            "role": "brick",
+            "spawned_by": 0
+          }
+        },
+        "position": {
+          "x": 465.0,
+          "y": 90.0
+        }
+      }
+    },
+    {
+      "entity_id": 11,
+      "entity_type": "destructible",
+      "role": "brick",
+      "tier": "Semantic",
+      "position": [
+        535.0,
+        90.0
+      ],
+      "size": [
+        60.0,
+        20.0
+      ],
+      "velocity": null,
+      "visible": true,
+      "z_index": 0.0,
+      "components": {
+        "position": {
+          "x": 535.0,
+          "y": 90.0
+        },
+        "size": {
+          "h": 20.0,
+          "w": 60.0
+        },
+        "__identity": {
+          "Semantic": {
+            "entity_type": "destructible",
+            "requirement_id": null,
+            "role": "brick",
+            "spawned_by": 0
+          }
+        }
+      }
+    },
+    {
+      "entity_id": 12,
+      "entity_type": "destructible",
+      "role": "brick",
+      "tier": "Semantic",
+      "position": [
+        255.0,
+        120.0
+      ],
+      "size": [
+        60.0,
+        20.0
+      ],
+      "velocity": null,
+      "visible": true,
+      "z_index": 0.0,
+      "components": {
+        "__identity": {
+          "Semantic": {
+            "entity_type": "destructible",
+            "requirement_id": null,
+            "role": "brick",
+            "spawned_by": 0
+          }
+        },
+        "size": {
+          "h": 20.0,
+          "w": 60.0
+        },
+        "position": {
+          "x": 255.0,
+          "y": 120.0
+        }
+      }
+    },
+    {
+      "entity_id": 13,
+      "entity_type": "destructible",
+      "role": "brick",
+      "tier": "Semantic",
+      "position": [
+        325.0,
+        120.0
+      ],
+      "size": [
+        60.0,
+        20.0
+      ],
+      "velocity": null,
+      "visible": true,
+      "z_index": 0.0,
+      "components": {
+        "__identity": {
+          "Semantic": {
+            "entity_type": "destructible",
+            "requirement_id": null,
+            "role": "brick",
+            "spawned_by": 0
+          }
+        },
+        "position": {
+          "x": 325.0,
+          "y": 120.0
+        },
+        "size": {
+          "h": 20.0,
+          "w": 60.0
+        }
+      }
+    },
+    {
+      "entity_id": 14,
+      "entity_type": "destructible",
+      "role": "brick",
+      "tier": "Semantic",
+      "position": [
+        395.0,
+        120.0
+      ],
+      "size": [
+        60.0,
+        20.0
+      ],
+      "velocity": null,
+      "visible": true,
+      "z_index": 0.0,
+      "components": {
+        "size": {
+          "h": 20.0,
+          "w": 60.0
+        },
+        "__identity": {
+          "Semantic": {
+            "entity_type": "destructible",
+            "requirement_id": null,
+            "role": "brick",
+            "spawned_by": 0
+          }
+        },
+        "position": {
+          "x": 395.0,
+          "y": 120.0
+        }
+      }
+    },
+    {
+      "entity_id": 15,
+      "entity_type": "destructible",
+      "role": "brick",
+      "tier": "Semantic",
+      "position": [
+        465.0,
+        120.0
+      ],
+      "size": [
+        60.0,
+        20.0
+      ],
+      "velocity": null,
+      "visible": true,
+      "z_index": 0.0,
+      "components": {
+        "position": {
+          "x": 465.0,
+          "y": 120.0
+        },
+        "size": {
+          "h": 20.0,
+          "w": 60.0
+        },
+        "__identity": {
+          "Semantic": {
+            "entity_type": "destructible",
+            "requirement_id": null,
+            "role": "brick",
+            "spawned_by": 0
+          }
+        }
+      }
+    },
+    {
+      "entity_id": 16,
+      "entity_type": "destructible",
+      "role": "brick",
+      "tier": "Semantic",
+      "position": [
+        535.0,
+        120.0
+      ],
+      "size": [
+        60.0,
+        20.0
+      ],
+      "velocity": null,
+      "visible": true,
+      "z_index": 0.0,
+      "components": {
+        "__identity": {
+          "Semantic": {
+            "entity_type": "destructible",
+            "requirement_id": null,
+            "role": "brick",
+            "spawned_by": 0
+          }
+        },
+        "position": {
+          "x": 535.0,
+          "y": 120.0
+        },
+        "size": {
+          "h": 20.0,
+          "w": 60.0
+        }
+      }
+    },
+    {
+      "entity_id": 17,
+      "entity_type": "destructible",
+      "role": "brick",
+      "tier": "Semantic",
+      "position": [
+        255.0,
+        150.0
+      ],
+      "size": [
+        60.0,
+        20.0
+      ],
+      "velocity": null,
+      "visible": true,
+      "z_index": 0.0,
+      "components": {
+        "size": {
+          "h": 20.0,
+          "w": 60.0
+        },
+        "__identity": {
+          "Semantic": {
+            "entity_type": "destructible",
+            "requirement_id": null,
+            "role": "brick",
+            "spawned_by": 0
+          }
+        },
+        "position": {
+          "x": 255.0,
+          "y": 150.0
+        }
+      }
+    },
+    {
+      "entity_id": 18,
+      "entity_type": "destructible",
+      "role": "brick",
+      "tier": "Semantic",
+      "position": [
+        325.0,
+        150.0
+      ],
+      "size": [
+        60.0,
+        20.0
+      ],
+      "velocity": null,
+      "visible": true,
+      "z_index": 0.0,
+      "components": {
+        "size": {
+          "h": 20.0,
+          "w": 60.0
+        },
+        "__identity": {
+          "Semantic": {
+            "entity_type": "destructible",
+            "requirement_id": null,
+            "role": "brick",
+            "spawned_by": 0
+          }
+        },
+        "position": {
+          "x": 325.0,
+          "y": 150.0
+        }
+      }
+    },
+    {
+      "entity_id": 19,
+      "entity_type": "destructible",
+      "role": "brick",
+      "tier": "Semantic",
+      "position": [
+        395.0,
+        150.0
+      ],
+      "size": [
+        60.0,
+        20.0
+      ],
+      "velocity": null,
+      "visible": true,
+      "z_index": 0.0,
+      "components": {
+        "position": {
+          "x": 395.0,
+          "y": 150.0
+        },
+        "size": {
+          "h": 20.0,
+          "w": 60.0
+        },
+        "__identity": {
+          "Semantic": {
+            "entity_type": "destructible",
+            "requirement_id": null,
+            "role": "brick",
+            "spawned_by": 0
+          }
+        }
+      }
+    },
+    {
+      "entity_id": 21,
+      "entity_type": "destructible",
+      "role": "brick",
+      "tier": "Semantic",
+      "position": [
+        535.0,
+        150.0
+      ],
+      "size": [
+        60.0,
+        20.0
+      ],
+      "velocity": null,
+      "visible": true,
+      "z_index": 0.0,
+      "components": {
+        "position": {
+          "x": 535.0,
+          "y": 150.0
+        },
+        "size": {
+          "h": 20.0,
+          "w": 60.0
+        },
+        "__identity": {
+          "Semantic": {
+            "entity_type": "destructible",
+            "requirement_id": null,
+            "role": "brick",
+            "spawned_by": 0
+          }
+        }
+      }
+    },
+    {
+      "entity_id": 22,
+      "entity_type": "boundary",
+      "role": "wall_top",
+      "tier": "Semantic",
+      "position": [
+        400.0,
+        -10.0
+      ],
+      "size": null,
+      "velocity": null,
+      "visible": true,
+      "z_index": 0.0,
+      "components": {
+        "__identity": {
+          "Semantic": {
+            "entity_type": "boundary",
+            "requirement_id": null,
+            "role": "wall_top",
+            "spawned_by": 0
+          }
+        },
+        "position": {
+          "x": 400.0,
+          "y": -10.0
+        }
+      }
+    },
+    {
+      "entity_id": 23,
+      "entity_type": "boundary",
+      "role": "wall_left",
+      "tier": "Semantic",
+      "position": [
+        -10.0,
+        300.0
+      ],
+      "size": null,
+      "velocity": null,
+      "visible": true,
+      "z_index": 0.0,
+      "components": {
+        "position": {
+          "x": -10.0,
+          "y": 300.0
+        },
+        "__identity": {
+          "Semantic": {
+            "entity_type": "boundary",
+            "requirement_id": null,
+            "role": "wall_left",
+            "spawned_by": 0
+          }
+        }
+      }
+    },
+    {
+      "entity_id": 24,
+      "entity_type": "boundary",
+      "role": "wall_right",
+      "tier": "Semantic",
+      "position": [
+        810.0,
+        300.0
+      ],
+      "size": null,
+      "velocity": null,
+      "visible": true,
+      "z_index": 0.0,
+      "components": {
+        "position": {
+          "x": 810.0,
+          "y": 300.0
+        },
+        "__identity": {
+          "Semantic": {
+            "entity_type": "boundary",
+            "requirement_id": null,
+            "role": "wall_right",
+            "spawned_by": 0
+          }
+        }
+      }
+    }
+  ],
+  "bounds": {
+    "min_x": -10.0,
+    "min_y": -10.0,
+    "max_x": 1007.8065795898438,
+    "max_y": 1529.847900390625
+  },
+  "entity_count": 24
+}
